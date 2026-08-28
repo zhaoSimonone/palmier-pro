@@ -18,6 +18,11 @@ enum FileIO {
             .appendingPathExtension(pathExtension)
     }
 
+    @concurrent
+    nonisolated static func removeItem(at url: URL) async {
+        try? FileManager.default.removeItem(at: url)
+    }
+
     nonisolated static func stageData(_ data: Data, pathExtension: String) throws -> URL {
         let url = temporaryFileURL(pathExtension: pathExtension)
         try data.write(to: url, options: .atomic)

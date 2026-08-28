@@ -81,9 +81,11 @@ extension ToolExecutor {
         }
     }
 
-    private func generateVideoEdit(
+    func generateVideoEdit(
         _ editor: EditorViewModel, _ args: [String: Any],
-        prompt: String, model: VideoModelConfig
+        prompt: String, model: VideoModelConfig,
+        operationLabel: String = "Edit started",
+        postprocess: String? = nil
     ) throws -> ToolResult {
         guard let sourceRef = args.string("sourceVideoMediaRef") else {
             throw ToolError("Model '\(model.id)' requires 'sourceVideoMediaRef' pointing to a video asset.")
@@ -136,13 +138,14 @@ extension ToolExecutor {
             ) {
             throw ToolError(error)
         }
-        let genInput = GenerationInput(
+        var genInput = GenerationInput(
             prompt: prompt, model: model.id,
             duration: duration,
             aspectRatio: aspectRatio, resolution: resolution,
             draft: draft,
             usesSourceVideo: true
         )
+        genInput.postprocess = postprocess
         let placeholderId = VideoGenerationSubmission.make(
             genInput: genInput,
             model: model,
@@ -152,7 +155,7 @@ extension ToolExecutor {
                 : sourceVideoDuration,
             trimmedSourceOverride: trimmed,
             name: args.string("name"),
-            folderId: sourceAsset.folderId,
+            folderId: try resolveFolder(args, editor: editor, fallbackReferences: [sourceAsset]),
             generateAudio: true
         ).submit(
             service: editor.generationService,
@@ -160,7 +163,7 @@ extension ToolExecutor {
             editor: editor
         )
         let draftSummary = draft ? ", draft: true" : ""
-        return .ok("Edit started. Placeholder asset ID: \(placeholderId). Model: \(model.displayName), source: \(sourceAsset.name)\(draftSummary)")
+        return .ok("\(operationLabel). Placeholder asset ID: \(placeholderId). Model: \(model.displayName), source: \(sourceAsset.name)\(draftSummary)")
     }
 
     private func generateVideoText(

@@ -65,6 +65,7 @@ enum ToolName: String, CaseIterable, Sendable {
     // Generation
     case listModels = "list_models"
     case generateVideo = "generate_video"
+    case removeOverlays = "remove_overlays"
     case generateImage = "generate_image"
     case generateAudio = "generate_audio"
     case upscaleMedia = "upscale_media"
@@ -1080,6 +1081,21 @@ enum ToolDefinitions {
                     "referenceAudioMediaRefs": ["type": "array", "items": ["type": "string"], "description": "Media asset IDs of audio references. Lip-sync models use this as the replacement audio track; prompt-driven models refer to them as @Audio1, @Audio2. See maxReferenceAudios, requiresReferenceAudio, and maxCombinedAudioRefSeconds."],
                     "folder": ["type": "string", "description": "Optional destination folder path, e.g. 'Hero shots/Takes'. Created if missing. Omit for the project root."],
                 ]
+            )
+        ),
+        AgentTool(
+            name: .removeOverlays,
+            description: "Removes logos, watermarks, captions, stickers, and obstructing graphic panels from an existing video with temporally consistent AI video inpainting, followed by deterministic cleanup of known generated panel artifacts. The original asset is preserved and a placeholder asset is returned immediately; poll get_media with that ID until it is ready. The operation keeps the source framing, duration, motion, subject identity, lighting, and audio — it never crops, zooms, blurs, or replaces the video. Costs real money and is not undoable.",
+            inputSchema: objectSchema(
+                properties: [
+                    "mediaRef": ["type": "string", "description": "Video asset ID from get_media. This is the source video to repair."],
+                    "instruction": ["type": "string", "description": "Optional. Describe which non-diegetic overlays to remove, such as 'remove the lower-third logo and the anime panel'."],
+                    "sourceClipId": ["type": "string", "description": "Optional. Clip ID from get_timeline referencing mediaRef. If the clip is trimmed, only its visible source range is repaired."],
+                    "name": ["type": "string", "description": "Optional output name. Defaults to the source name with an inpaint suffix."],
+                    "folder": ["type": "string", "description": "Optional destination folder path, created if missing."],
+                    "draft": ["type": "boolean", "description": "Optional. Request a lower-cost 720p preview when the selected edit model supports drafts."],
+                ],
+                required: ["mediaRef"]
             )
         ),
         AgentTool(

@@ -282,12 +282,26 @@ final class GenerationService {
         }
         do {
             let (tempURL, _) = try await URLSession.shared.download(from: remoteURL)
-            let realExt = remoteURL.pathExtension.lowercased()
-            if !realExt.isEmpty, realExt != asset.url.pathExtension.lowercased(),
-               ClipType(fileExtension: realExt) != nil {
-                asset.url = asset.url.deletingPathExtension().appendingPathExtension(realExt)
+            var stagedURL = tempURL
+            do {
+                if asset.generationInput?.postprocess == VideoOverlayArtifactCleaner.postprocessKey,
+                   let processedURL = try await VideoOverlayArtifactCleaner.cleanIfNeeded(url: tempURL) {
+                    await FileIO.removeItem(at: tempURL)
+                    stagedURL = processedURL
+                }
+                let realExt = remoteURL.pathExtension.lowercased()
+                if !realExt.isEmpty, realExt != asset.url.pathExtension.lowercased(),
+                   ClipType(fileExtension: realExt) != nil {
+                    asset.url = asset.url.deletingPathExtension().appendingPathExtension(realExt)
+                }
+                asset.url = try await editor.commitStagedProjectMedia(stagedURL, filename: asset.url.lastPathComponent)
+            } catch {
+                await FileIO.removeItem(at: tempURL)
+                if stagedURL != tempURL {
+                    await FileIO.removeItem(at: stagedURL)
+                }
+                throw error
             }
-            asset.url = try await editor.commitStagedProjectMedia(tempURL, filename: asset.url.lastPathComponent)
 
             asset.pendingDownloadURL = nil
             editor.importMediaAsset(asset, skipAppend: true)

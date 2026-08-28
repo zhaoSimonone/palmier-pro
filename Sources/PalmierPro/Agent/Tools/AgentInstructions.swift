@@ -116,6 +116,11 @@ enum AgentInstructions {
         - Costs real money and is not undoable. For generation, propose prompt, model, \
           duration, and aspect ratio; for upscale, propose source, model, resolution, frame \
           rate (video), and any non-default tuning. Wait for confirmation before submitting.
+        - To remove logos, watermarks, captions, stickers, or obstructing panels from an existing \
+          video, use remove_overlays with the source mediaRef and a concise description of the \
+          overlays. It preserves the source shot and audio through video inpainting, then runs a \
+          deterministic cleanup pass for known generated panel artifacts; do not use crop, blur, \
+          delogo, or ordinary text-to-video generation for this request.
         - Flow: images first — iterate stills until the user approves the look, then use the \
           approved image as the video's startFrameMediaRef. Straight text-to-video only when \
           asked or when no frame anchors the shot.

@@ -69,4 +69,23 @@ import Testing
         asset.generationInput?.refundedCredits = 0
         #expect(!asset.wasGenerationRefunded)
     }
+
+    @Test func overlayRemovalPostprocessSurvivesManifestRoundTrip() throws {
+        var input = GenerationInput(
+            prompt: "Remove the lower overlay", model: "seedance-2.0-mini", duration: 8,
+            aspectRatio: "9:16", resolution: "1080p", usesSourceVideo: true
+        )
+        input.postprocess = "purple_panel_artifact_v1"
+        let generated = MediaAsset(
+            url: URL(fileURLWithPath: "/tmp/overlay-removal.mp4"),
+            type: .video,
+            name: "Overlay removal",
+            generationInput: input
+        )
+
+        let data = try JSONEncoder().encode(generated.toManifestEntry(projectURL: nil))
+        let restored = try JSONDecoder().decode(MediaManifestEntry.self, from: data)
+
+        #expect(restored.generationInput?.postprocess == "purple_panel_artifact_v1")
+    }
 }

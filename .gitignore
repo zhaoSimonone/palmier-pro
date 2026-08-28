@@ -37,3 +37,6 @@ models/*/checkpoint*
 models/*/convert*.log
 
 AUDIO_SUITE_*
+
+# Local video test and render artifacts
+*.mp4
