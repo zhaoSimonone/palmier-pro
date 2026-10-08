@@ -301,3 +301,7 @@ Palmier Pro speaks like a quietly capable native Mac app for filmmakers: direct,
 - [Loading media data asynchronously](https://developer.apple.com/documentation/avfoundation/loading-media-data-asynchronously)
 - [Swift Testing](https://developer.apple.com/documentation/testing)
 - [Swift API Design Guidelines](https://www.swift.org/documentation/api-design-guidelines/)
+
+## Project skills
+
+- For user-directed GIF/PNG video coverage, read `.agents/skills/video-overlay-censor/SKILL.md`. This is an external media workflow, not an editor timeline mutation.

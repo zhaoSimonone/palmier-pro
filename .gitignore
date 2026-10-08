@@ -40,3 +40,8 @@ AUDIO_SUITE_*
 
 # Local video test and render artifacts
 *.mp4
+
+# Local render frames and Python caches
+/outputs/
+__pycache__/
+*.py[cod]

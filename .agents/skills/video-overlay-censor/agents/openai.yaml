@@ -1,0 +1,3 @@
+interface:
+  display_name: "GIF 视频遮挡"
+  short_description: "用 GIF 或 PNG 固定遮挡或按关键帧跟随指定视频区域"
