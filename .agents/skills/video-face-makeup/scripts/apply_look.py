@@ -62,14 +62,14 @@ def cheek_centers(pts: np.ndarray, eye_dist: float) -> tuple[np.ndarray, np.ndar
     right = np.array(
         [
             reye[0] * 0.50 + rmouth[0] * 0.50 - eye_dist * 0.10,
-            nose[1] * 0.28 + rmouth[1] * 0.72,
+            nose[1] * 0.58 + rmouth[1] * 0.42 - eye_dist * 0.04,
         ],
         np.float32,
     )
     left = np.array(
         [
             leye[0] * 0.50 + lmouth[0] * 0.50 + eye_dist * 0.10,
-            nose[1] * 0.28 + lmouth[1] * 0.72,
+            nose[1] * 0.58 + lmouth[1] * 0.42 - eye_dist * 0.04,
         ],
         np.float32,
     )
@@ -140,9 +140,12 @@ def apply_look_to_bgr(
 
     reye, leye, _nose, rmouth, lmouth = local
     mouth_c = (rmouth + lmouth) * 0.5
-    lip_w = max(float(np.linalg.norm(lmouth - rmouth)) * 0.62, eye_dist * 0.28)
-    lip_h = max(eye_dist * 0.16, 8.0)
-    lips = gaussian_blob(rh, rw, mouth_c[0], mouth_c[1] + lip_h * 0.18, lip_w, lip_h, rot)
+    # Keep lip tint inside the mouth instead of spilling onto the surrounding skin.
+    mouth_width = float(np.linalg.norm(lmouth - rmouth))
+    lip_w = max(mouth_width * 0.20, 3.0)
+    lip_h = max(eye_dist * 0.045, 2.5)
+    lips = gaussian_blob(rh, rw, mouth_c[0], mouth_c[1] + lip_h * 0.02, lip_w, lip_h, rot)
+    lips = np.power(lips, 1.6)
     lids = gaussian_blob(rh, rw, reye[0], reye[1] - eye_dist * 0.02, eye_dist * 0.22, eye_dist * 0.10, rot)
     lids += gaussian_blob(rh, rw, leye[0], leye[1] - eye_dist * 0.02, eye_dist * 0.22, eye_dist * 0.10, rot)
     lids = np.clip(lids, 0, 1)

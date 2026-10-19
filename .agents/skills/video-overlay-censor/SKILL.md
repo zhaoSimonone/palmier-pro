@@ -7,6 +7,12 @@ description: Apply a user-provided animated GIF or PNG as a fixed-size censor/co
 
 Use this skill for deterministic, user-directed video masking with an image or animated GIF. It supports fixed placement and manual keyframe tracking while keeping overlay geometry stable.
 
+## Default overlay
+
+The user-selected GIF from previous edits is bundled at `assets/default-overlay.gif` (350 × 194 pixels, 8 frames). Omit `--overlay` to use it; pass `--overlay /path/to/another.gif` only when the user requests another asset. Do not ask the user to reattach the default GIF or depend on clipboard temporary paths. Copy the complete skill directory, including `assets/`, when using it with another agent or machine.
+
+The bundled file preserves the original pixels, background, and animation. White-background removal remains an explicit `--remove-edge-white` option; verify coverage before using transparency. Target size and location still need to be chosen for each video.
+
 ## Capabilities
 
 - Inspect video and overlay duration, dimensions, frame rate, codecs, audio, GIF frame timing, and loop behavior with `ffprobe`.
@@ -20,7 +26,7 @@ Use this skill for deterministic, user-directed video masking with an image or a
 
 ## Workflow
 
-1. Confirm the exact input video, overlay asset, active time range, and whether placement is fixed or tracked. A screenshot or red box is visual guidance, not a machine-readable mask.
+1. Use the bundled default GIF unless the user supplies another overlay. Confirm the exact input video, overlay asset, active time range, and whether placement is fixed or tracked. A screenshot or red box is visual guidance, not a machine-readable mask.
 2. Inspect both assets with `ffprobe`. Do not assume 30 fps, a transparent GIF, or any particular canvas ratio.
 3. Choose geometry explicitly. Coordinates are source-video pixels with top-left origin; `x/y` are overlay center coordinates. Use constant width and height unless the user explicitly requests scaling.
 4. For a GIF with a plain white background, pass `--remove-edge-white`. This removes only near-white pixels connected to the frame edge; do not globally remove white.
@@ -47,7 +53,6 @@ Keyframe times must be strictly increasing and cover the complete active interva
 ```bash
 python3 /path/to/skills/video-overlay-censor/scripts/apply_overlay.py \
   --input /path/to/input.mp4 \
-  --overlay /path/to/cover.gif \
   --output /path/to/output.mp4 \
   --start 3.45 --end 8.29 \
   --width 270 --height 190 \

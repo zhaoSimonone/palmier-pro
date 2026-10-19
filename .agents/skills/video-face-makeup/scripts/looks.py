@@ -12,7 +12,7 @@ LOOKS: dict[str, dict[str, Any]] = {
         "layers": ("warmth", "blush", "lips", "lids", "smooth"),
         "warm": 0.55,
         "warm_bgr": (1.0, 3.2, 8.0),
-        "blush": 0.62,
+        "blush": 0.78,
         "blush_bgr": (5.0, 12.0, 44.0),
         "lips": 0.48,
         "lips_bgr": (4.0, 6.0, 30.0),
@@ -21,7 +21,7 @@ LOOKS: dict[str, dict[str, Any]] = {
         "smooth": 0.18,
         "cheek_sx": 0.42,
         "cheek_sy": 0.30,
-        "nose_blush": 0.32,
+        "nose_blush": 0.12,
     }
 }
 

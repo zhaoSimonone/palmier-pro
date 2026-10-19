@@ -45,3 +45,6 @@ AUDIO_SUITE_*
 /outputs/
 __pycache__/
 *.py[cod]
+
+# Local Python environments
+.venv/

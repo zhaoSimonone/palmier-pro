@@ -62,22 +62,22 @@ def edge_connected_near_white_alpha(rgba: np.ndarray) -> np.ndarray:
 
 
 def load_overlay(path: Path, remove_edge_white: bool) -> tuple[list[Image.Image], list[float]]:
-    image = Image.open(path)
-    frames: list[Image.Image] = []
-    durations: list[float] = []
-    count = getattr(image, "n_frames", 1)
-    for index in range(count):
-        image.seek(index)
-        rgba = np.array(image.convert("RGBA"))
-        if remove_edge_white:
-            rgba = edge_connected_near_white_alpha(rgba)
-        frames.append(Image.fromarray(rgba))
-        duration_ms = image.info.get("duration", 100)
-        try:
-            duration = max(0.001, float(duration_ms) / 1000.0)
-        except (TypeError, ValueError):
-            duration = 0.1
-        durations.append(duration)
+    with Image.open(path) as image:
+        frames: list[Image.Image] = []
+        durations: list[float] = []
+        count = getattr(image, "n_frames", 1)
+        for index in range(count):
+            image.seek(index)
+            rgba = np.array(image.convert("RGBA"))
+            if remove_edge_white:
+                rgba = edge_connected_near_white_alpha(rgba)
+            frames.append(Image.fromarray(rgba))
+            duration_ms = image.info.get("duration", 100)
+            try:
+                duration = max(0.001, float(duration_ms) / 1000.0)
+            except (TypeError, ValueError):
+                duration = 0.1
+            durations.append(duration)
     return frames, durations
 
 
@@ -155,7 +155,9 @@ def make_overlay_frames(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--overlay", type=Path, required=True)
+    parser.add_argument("--overlay", type=Path,
+                        default=Path(__file__).resolve().parents[1] / "assets" / "default-overlay.gif",
+                        help="GIF/PNG cover; defaults to the bundled user-selected GIF")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--start", type=float, required=True)
     parser.add_argument("--end", type=float)

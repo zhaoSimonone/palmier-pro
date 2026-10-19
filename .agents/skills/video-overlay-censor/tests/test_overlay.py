@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
@@ -15,6 +16,24 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'apply_overlay.py'
 spec = importlib.util.spec_from_file_location('overlay', SCRIPT)
 overlay = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(overlay)
+
+
+class DefaultOverlayTests(unittest.TestCase):
+    def test_omitted_overlay_loads_bundled_animation(self):
+        with patch.object(sys, 'argv', ['apply_overlay', '--input', 'input.mp4',
+                                      '--output', 'output.mp4', '--start', '0', '--width', '80']):
+            args = overlay.parse_args()
+        self.assertEqual(args.overlay, SCRIPT.parents[1] / 'assets' / 'default-overlay.gif')
+        frames, durations = overlay.load_overlay(args.overlay, False)
+        self.assertEqual(len(frames), 8)
+        self.assertEqual(frames[0].size, (350, 194))
+        self.assertTrue(all(t > 0 for t in durations))
+
+    def test_explicit_overlay_overrides_default(self):
+        with patch.object(sys, 'argv', ['apply_overlay', '--input', 'input.mp4',
+                                      '--output', 'output.mp4', '--start', '0', '--width', '80',
+                                      '--overlay', '/tmp/custom.gif']):
+            self.assertEqual(overlay.parse_args().overlay, Path('/tmp/custom.gif'))
 
 
 class GeometryTests(unittest.TestCase):
