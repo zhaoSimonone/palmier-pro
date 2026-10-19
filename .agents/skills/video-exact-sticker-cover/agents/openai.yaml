@@ -1,0 +1,3 @@
+interface:
+  display_name: "视频精确贴图遮挡"
+  short_description: "Exact cover for fixed source-video sticker bounds"
