@@ -19,3 +19,9 @@ Invoke with: `用 video-overlay-censor 给这个视频加遮挡贴图：/path/to
 Overlay a tracked makeup look onto a finished video, defaulting to 轻薄暖桃妆. Use for blush, 红晕, 补妆, or a thin beauty overlay. Do not use for hair or costume replacement, whole-frame grading, or sticker covers.
 
 Invoke with: `用 video-face-makeup 给这个视频补轻薄暖桃妆：/path/to/source.mp4`
+
+## video-holy-light-censor
+
+Obscure a sensitive body region in a video with a tracked, feathered, pixel-level Gaussian blur (圣光遮挡). Use when the user asks to 遮挡 / 打码 / 模糊 a moving area such as 大腿, 胯部, 胸部, or 臀部. Do not use for GIF or PNG sticker overlays, fixed rectangular sticker covers, or makeup effects.
+
+Invoke with: `用 video-holy-light-censor 遮挡这个视频大腿露出来的部分：/path/to/source.mp4`
