@@ -41,6 +41,24 @@ AUDIO_SUITE_*
 # Local video test and render artifacts
 *.mp4
 
+# Local analysis artifacts in the repo root (rendered videos, comparison stills).
+# Anchored with a leading slash so application resources under Sources/ stay tracked.
+/*.mp4
+/*.mov
+/*.mkv
+/*.avi
+/*.webm
+/*.flv
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.npy
+/*.raw
+
+# Locally generated ignore file kept by another editor
+.zcodeignore
+
 # Local render frames and Python caches
 /outputs/
 __pycache__/
