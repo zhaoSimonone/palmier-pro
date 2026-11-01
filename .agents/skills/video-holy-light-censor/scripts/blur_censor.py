@@ -141,20 +141,28 @@ def track_skin(mask_paths: list[Path], reference: int, seed: tuple[float, float]
 
 
 def track_template(frame_paths: list[Path], reference: int, seed: tuple[float, float],
-                   size: tuple[int, int], radius: int) -> list[dict | None]:
-    """Track a fixed-size patch around the seed by normalized cross-correlation."""
+                   size: tuple[int, int], radius: int, pad: int = 0,
+                   min_score: float = 0.0) -> list[dict | None]:
+    """Track a fixed-size patch around the seed by normalized cross-correlation.
+
+    `pad` grows the matched template with surrounding context while the reported
+    box keeps the requested region size, so a smooth target with no texture of
+    its own can still be locked onto by the detail around it. `radius` bounds
+    how far the centre may move per frame.
+    """
     count = len(frame_paths)
     half_w, half_h = max(1, size[0] // 2), max(1, size[1] // 2)
     first = cv2.imread(str(frame_paths[reference]), cv2.IMREAD_GRAYSCALE)
     sx, sy = int(seed[0]), int(seed[1])
-    template = first[max(0, sy - half_h):sy + half_h, max(0, sx - half_w):sx + half_w]
+    template = first[max(0, sy - half_h - pad):sy + half_h + pad,
+                     max(0, sx - half_w - pad):sx + half_w + pad]
     if template.size == 0:
         raise ValueError("seed point is outside the frame")
     th, tw = template.shape[:2]
     track: list[dict | None] = [None] * count
     position = (float(sx), float(sy))
-    track[reference] = {"x": sx - tw // 2, "y": sy - th // 2, "w": tw, "h": th,
-                         "area": tw * th, "cx": position[0], "cy": position[1]}
+    track[reference] = {"x": sx - size[0] // 2, "y": sy - size[1] // 2, "w": size[0], "h": size[1],
+                         "area": size[0] * size[1], "cx": position[0], "cy": position[1]}
     for direction in (1, -1):
         index = reference
         while True:
@@ -163,18 +171,21 @@ def track_template(frame_paths: list[Path], reference: int, seed: tuple[float, f
                 break
             frame = cv2.imread(str(frame_paths[nxt]), cv2.IMREAD_GRAYSCALE)
             px, py = position
-            x0 = max(0, int(px - tw - radius)); x1 = min(frame.shape[1], int(px + tw + radius))
-            y0 = max(0, int(py - th - radius)); y1 = min(frame.shape[0], int(py + th + radius))
+            x0 = max(0, int(px - tw // 2 - radius)); x1 = min(frame.shape[1], int(px + tw // 2 + radius + 1))
+            y0 = max(0, int(py - th // 2 - radius)); y1 = min(frame.shape[0], int(py + th // 2 + radius + 1))
             window = frame[y0:y1, x0:x1]
             if window.shape[0] < th or window.shape[1] < tw:
                 track[nxt] = dict(track[index])
             else:
                 response = cv2.matchTemplate(window, template, cv2.TM_CCOEFF_NORMED)
-                _, _, _, location = cv2.minMaxLoc(response)
-                position = (x0 + location[0] + tw / 2.0, y0 + location[1] + th / 2.0)
-                track[nxt] = {"x": int(position[0] - tw / 2), "y": int(position[1] - th / 2),
-                              "w": tw, "h": th, "area": tw * th,
-                              "cx": position[0], "cy": position[1]}
+                _, score, _, location = cv2.minMaxLoc(response)
+                if score < min_score:
+                    track[nxt] = dict(track[index])
+                else:
+                    position = (x0 + location[0] + tw / 2.0, y0 + location[1] + th / 2.0)
+                    track[nxt] = {"x": int(position[0] - size[0] // 2), "y": int(position[1] - size[1] // 2),
+                                  "w": size[0], "h": size[1], "area": size[0] * size[1],
+                                  "cx": position[0], "cy": position[1]}
             index = nxt
     return track
 
@@ -225,6 +236,15 @@ def parse_args() -> argparse.Namespace:
                         help="point inside the region to obscure; repeat for a second region")
     parser.add_argument("--region", action="append", default=[], metavar="X,Y,W,H",
                         help="explicit rectangle to track instead of skin detection; repeatable")
+    parser.add_argument("--track-pad", type=int, default=0,
+                        help="extra pixels of context added around the region for matching only; "
+                             "the blur still covers the region alone. Raise it when the target is "
+                             "smooth and has no texture of its own")
+    parser.add_argument("--search-radius", type=int, default=60,
+                        help="how far the tracked centre may move per frame, in pixels")
+    parser.add_argument("--min-score", type=float, default=0.0,
+                        help="hold the previous position when the best match scores below this; "
+                             "0 accepts every match")
     parser.add_argument("--band", default="", metavar="X1,X2",
                         help="column range excluded from skin detection so neighbouring regions "
                              "do not merge; defaults to the middle half of the gap between seeds")
@@ -281,6 +301,12 @@ def main() -> int:
         raise ValueError("--zone-width and --zone-height must be positive")
     if not 0.0 < args.plateau < 1.0:
         raise ValueError("--plateau must be between 0 and 1")
+    if args.track_pad < 0:
+        raise ValueError("--track-pad must not be negative")
+    if args.search_radius < 0:
+        raise ValueError("--search-radius must not be negative")
+    if not 0.0 <= args.min_score <= 1.0:
+        raise ValueError("--min-score must be between 0 and 1")
     if args.min_area < 0:
         raise ValueError("--min-area must not be negative")
 
@@ -355,7 +381,8 @@ def main() -> int:
             rects = [parse_rect(r, "--region") for r in args.region]
             tracks = [track_template(frame_paths, reference,
                                      (rect[0] + rect[2] / 2, rect[1] + rect[3] / 2),
-                                     (int(rect[2]), int(rect[3])), radius=60)
+                                     (int(rect[2]), int(rect[3])), radius=args.search_radius,
+                                     pad=args.track_pad, min_score=args.min_score)
                       for rect in rects]
 
         smoothed = [smooth_track(track, args.smooth) for track in tracks]

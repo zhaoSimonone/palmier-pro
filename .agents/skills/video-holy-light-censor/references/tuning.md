@@ -14,9 +14,12 @@ The knob ladder, the feedback-to-knob mapping, and the numeric checks that decid
 | `--milk` | 2.0 | brightness lift inside the blur (frosted look). |
 | `--core` | 0.0 | white core opacity at the centre. 0 disables it. |
 | `--smooth` | 2.0 | temporal smoothing of the tracked centre, in frames. |
-| `--reference-frame` | middle | frame used to seed the tracking. |
+| `--reference-frame` | middle | frame used to seed the tracking. Set it to the frame the user's box was drawn on, not the interval midpoint — the tracker pins the box there. |
 | `--min-area` | auto | smallest skin blob in pixels that may be tracked. Auto derives it from the frame size (about 0.06% of the frame area, floored at 400 px). Raise it when a small skin-coloured accessory is being picked up as the target. |
 | `--hue` / `--sat` / `--val` | `5,34` / `85,180` / `120,250` | the HSV window used for skin detection. |
+| `--track-pad` | 0 | extra pixels of context added around a `--region` box **for matching only**. The blur still covers the region alone. Raise it when the target is smooth skin or shadow with no texture of its own. |
+| `--search-radius` | 60 | how far a `--region` template's centre may move per frame, in pixels. |
+| `--min-score` | 0.0 | hold the previous position when the best template match scores below this (0–1). 0 accepts every match. |
 
 ## Zone size arithmetic — get this right first
 
@@ -26,11 +29,38 @@ The feathered rim lands at the ellipse boundary, so a multiplier that is too hig
 
 Start at the default 0.95 / 0.85 and move in one direction at a time. Raise it if the corners of the limb are still readable; lower it if the neighbouring garment is smudged.
 
+## Template tracking (`--region`) — the three knobs that decide whether it holds
+
+`--region` mode matches a patch of the reference frame with normalised cross-correlation. Three knobs control how well it stays locked, and they only apply to `--region`, not to `--seed`:
+
+- `--track-pad N` grows the **matched** template by N pixels of context on every side while the **reported** box stays the size you asked for. This is the fix for a target with no texture of its own — bare skin, a shadowed cleavage, a smooth gradient. Without context, the normalised correlation has nothing to anchor on and drifts. The blur footprint is unaffected: the zone is still computed from the region box.
+- `--search-radius R` bounds how far the centre may move per frame. The search window is `centre ± (template_half + R)`, so R is literally the per-frame displacement limit. A large radius lets the tracker jump across the body onto a similar-looking patch.
+- `--min-score S` holds the previous position when the best match scores below S. A low score means the match is not trustworthy, and following it is worse than standing still.
+
+Measured on a real clip where the target was a 91×90 region over a moving chest: with `pad=0` the track covered the region on average 85% of the frames and failed outright on 10 of 120 frames, with single-frame jumps of 80–102 px. With `pad=90`, `search-radius=20`, `min-score=0.65` the coverage rose to 95% with **zero** failed frames.
+
+Watch out for the trap in the middle: if `--search-radius` is smaller than the target's real per-frame displacement, the tracker lags behind the subject — it stays locked on the *pattern* it was matching, which is correct behaviour, not a bug. Raise the radius rather than blaming the matcher.
+
+**Padding is not always the answer.** It helps a small, textureless target. It hurts a large one: on a 217×184 region the template already carries plenty of structure, so `pad=0` scored best (91% mean coverage, 0 failed frames) while `pad=120` dropped to 86%. Extra padding on a big box pulls moving hands and swinging hair into the template, and those are exactly the parts that change. Measure coverage before reaching for `--track-pad`.
+
 ## Sigma reaches beyond the zone
 
 Sigma is the standard deviation of the Gaussian, so the blur kernel spreads roughly `3 × sigma` in each direction. A sigma of 48 reaches about 144 px — far enough to pull the black thigh-high band and the dark background into the thigh's blur and turn it into a dark smear. `--sigma-max 26` keeps the kernel inside the zone.
 
 When the covered region comes out **darker** than the source, that is the signature of sigma reaching into a dark neighbour. Lower `--sigma-max` before touching anything else.
+
+## A big box needs a bigger sigma
+
+`sigma = --blur × rx`, and `rx` scales with the tracked box. A 91×90 box gives `rx ≈ 86` and a sigma of 26; a 217×184 box gives `rx ≈ 191`, where the same `--blur 0.30` asks for a sigma of 57. The default `--sigma-max 26` clamps that hard, and the result is a 217 px patch with a 26 px blur — the detail inside is only lightly softened and stays readable.
+
+So the clamp has to move with the target: for a 217×184 region, `--sigma-max 52–60` restores the intended detail destruction. The cost is real — a large sigma drags the neighbouring colours into the blur, so the ROI mean drops further and the patch picks up their tint. Counter it by shrinking the zone rather than by weakening the blur:
+
+| Box | Zone | Sigma max | Measured spatial high-frequency | ROI mean |
+| --- | --- | --- | --- | --- |
+| 217×184 | 0.95 / 0.85 | 60 | −75.6% | −6.1% |
+| 217×184 | 0.88 / 0.78 | 52 | −68.7% | −5.2% |
+
+Both hide the target completely. The tighter zone keeps the garment's edge clean and the tint bleed smaller, at the cost of a slightly softer blur. When the covered region is large, start tighter than the default.
 
 ## Mapping user feedback to a change
 
@@ -46,6 +76,8 @@ This ladder came out of a real six-round iteration. Read the complaint, change o
 | "边在抖" / "糊块在飘" | `--smooth` up | Temporal jitter in the tracked centre. |
 | "旁边白衣服脏了" / "糊到裙子上" | `--zone-width` / `--zone-height` down | The rim has spilled onto the neighbouring garment. |
 | "腿变黑了" | `--sigma-max` down | The blur is reaching into a dark neighbour. |
+| "糊块飘了 / 跟不上" (region mode) | `--track-pad` up, `--search-radius` up | The template had no context to match on and the window was too tight to follow the motion. |
+| "糊块卡住不动" (region mode) | `--min-score` up | The match was below the confidence floor and the position was being held. |
 
 Push in this order: disable the core, enlarge the zone, then deepen the blur. Deepening the blur first dissolves the body shape and is hard to undo.
 

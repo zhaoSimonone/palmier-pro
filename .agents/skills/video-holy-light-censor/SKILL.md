@@ -42,7 +42,9 @@ If the user supplied a red-box screenshot, treat it as guidance, not as coordina
      --ffprobe /opt/homebrew/bin/ffprobe
    ```
 
-   The seeds and the band in this example come from one specific clip; recompute all three for the video in front of you. `--seed X,Y` is a point inside the region to obscure; repeat it for a second region. `--region X,Y,W,H` tracks a fixed-size rectangle instead, for targets that are not skin. `--band X1,X2` drops a column range from the skin mask entirely, which both separates two nearby regions that would otherwise merge into one blob and removes a hand that is resting on the target. Without it, a thigh and the torso or a hand are detected as a single component and the blur lands in the wrong place.
+   The seeds and the band in this example come from one specific clip; recompute all three for the video in front of you. `--seed X,Y` is a point inside the region to obscure; repeat it for a second region. `--region X,Y,W,H` tracks a fixed-size rectangle instead, for targets that are not skin or that sit in shadow. `--band X1,X2` drops a column range from the skin mask entirely, which both separates two nearby regions that would otherwise merge into one blob and removes a hand that is resting on the target. Without it, a thigh and the torso or a hand are detected as a single component and the blur lands in the wrong place.
+
+   When the region is smooth skin or a shadow, template matching has no texture to latch onto. Give it context with `--track-pad N` (matching only — the blur still covers the region alone), keep the per-frame jump bounded with `--search-radius R`, and reject implausible matches with `--min-score S`.
 
    The output must be a new `.mp4`; the script refuses to overwrite an existing path and refuses any output whose extension is not `.mp4`.
 
@@ -58,6 +60,8 @@ If the user supplied a red-box screenshot, treat it as guidance, not as coordina
 
 6. Iterate on the knobs rather than rewriting the pipeline. The defaults (`--blur 0.30 --zone-width 0.95 --zone-height 0.85 --plateau 0.78 --milk 2.0 --core 0.0 --sigma-max 26`) are the values that satisfied a real request; they are a starting point, not a law. The full knob ladder, the zone-size arithmetic, and the user-feedback-to-knob mapping are in [references/tuning.md](references/tuning.md).
 
+   Sigma scales with the zone radius, which scales with the tracked box. A box much larger than the ~90 px the defaults were tuned on needs a larger `--sigma-max` to destroy the detail inside it, and a slightly tighter zone to stop the neighbours bleeding into the blur. Measure the ROI before and after instead of assuming the defaults transfer.
+
 7. Deliver the output as a new file with an absolute path, and state which interval was covered and which parameters were used. Keep every earlier version; do not overwrite a previous delivery.
 
 ## Output contract
@@ -71,6 +75,9 @@ If the user supplied a red-box screenshot, treat it as guidance, not as coordina
 - **No skin region found at the seed.** The seed is off the target or the HSV thresholds do not match this footage. Re-extract the frame, view it, and pick the seed again. Adjust `--hue/--sat/--val` only after confirming the seed lands inside the target.
 - **The blur lands on the wrong body part.** Two regions merged into one component. Add `--band` to cut them apart, or use `--region` to track a rectangle directly.
 - **The mask jitters or slides.** Raise `--smooth` to smooth the track over time, or move `--reference-frame` to a frame where the target is clearly visible.
+- **The tracked box drifts off the target (`--region` mode).** The template had no texture to match on and the search window let it wander. Add `--track-pad 60–100` to give the match surrounding context, tighten `--search-radius` to 15–25, and set `--min-score` around 0.6 so an implausible frame holds position instead of jumping.
+- **The tracked box lags behind the target.** `--search-radius` is smaller than the real per-frame displacement. Raise it.
+- **The box is correct at the start but wrong later.** `--reference-frame` points at a frame the target had already moved away from. Set it to the frame the user's box was drawn on — see the screenshot-mapping procedure in [references/region-detection.md](references/region-detection.md).
 - **The output looks like a white glow instead of a blur.** `--core` is non-zero or `--milk` is too high. Set `--core 0` and lower `--milk`.
 - **The detail is still legible.** Raise `--blur` (stronger sigma) and/or `--zone-width` / `--zone-height` (larger footprint). Raising `--blur` too far dissolves the body shape; the region stops reading as a leg.
 - **The script exits non-zero.** Read stderr. A `CalledProcessError` carries the FFmpeg message. The temporary work directory is created next to the output and is removed on exit, including on failure.

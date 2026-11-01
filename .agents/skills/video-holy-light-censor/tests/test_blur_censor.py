@@ -123,6 +123,73 @@ class GeometryTests(unittest.TestCase):
             self.assertAlmostEqual(box['cy'], 70.0, places=5)
 
 
+class TemplateTrackingTests(unittest.TestCase):
+    """The template mode: padded context, bounded search, confidence gate."""
+
+    def _frames(self, root, count=9, shift=6, size=300, start=80):
+        """A textured static background with a high-contrast patch moving across it."""
+        paths = []
+        rng = np.random.RandomState(7)
+        background = rng.randint(24, 36, (size, size, 3)).astype(np.uint8)
+        patch = rng.randint(0, 255, (40, 40, 3)).astype(np.uint8)
+        for i in range(count):
+            image = background.copy()
+            x, y = start + i * shift, 90
+            image[y:y + 40, x:x + 40] = patch
+            path = root / f'f{i:04d}.png'
+            cv2.imwrite(str(path), image)
+            paths.append(path)
+        return paths
+
+    def test_track_follows_a_moving_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            paths = self._frames(Path(temp))
+            track = censor.track_template(paths, 0, (100, 110), (40, 40), radius=20)
+            self.assertAlmostEqual(track[8]['cx'], 80 + 8 * 6 + 20, delta=3)
+            self.assertAlmostEqual(track[8]['cy'], 110, delta=3)
+
+    def test_track_pad_keeps_the_reported_region_size(self):
+        with tempfile.TemporaryDirectory() as temp:
+            paths = self._frames(Path(temp))
+            track = censor.track_template(paths, 0, (100, 110), (40, 40), radius=20, pad=40)
+            for box in track:
+                self.assertEqual((box['w'], box['h']), (40, 40))
+
+    def test_track_pad_still_follows_the_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            paths = self._frames(Path(temp))
+            track = censor.track_template(paths, 0, (100, 110), (40, 40), radius=20, pad=40)
+            self.assertAlmostEqual(track[8]['cx'], 80 + 8 * 6 + 20, delta=4)
+
+    def test_min_score_holds_the_position_when_the_target_disappears(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            paths = self._frames(root)
+            blank = root / 'blank.png'
+            cv2.imwrite(str(blank), np.full((200, 200, 3), 30, np.uint8))
+            paths = paths[:5] + [blank, blank, blank, blank]
+            track = censor.track_template(paths, 0, (100, 110), (40, 40), radius=20, min_score=0.9)
+            self.assertEqual(track[8]['cx'], track[4]['cx'])
+            self.assertEqual(track[8]['cy'], track[4]['cy'])
+
+    def test_search_radius_bounds_the_per_frame_movement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            rng = np.random.RandomState(7)
+            background = rng.randint(24, 36, (200, 200, 3)).astype(np.uint8)
+            patch = rng.randint(0, 255, (40, 40, 3)).astype(np.uint8)
+            paths = []
+            for i in range(3):
+                image = background.copy()
+                x = 80 if i == 0 else 160          # the target jumps 80 px
+                image[90:130, x:x + 40] = patch
+                path = root / f'f{i:04d}.png'
+                cv2.imwrite(str(path), image)
+                paths.append(path)
+            track = censor.track_template(paths, 0, (100, 110), (40, 40), radius=10)
+            self.assertLessEqual(abs(track[1]['cx'] - track[0]['cx']), 11.0)
+
+
 @unittest.skipUnless(FFMPEG and FFPROBE, 'FFmpeg and ffprobe required')
 class RenderTests(unittest.TestCase):
     def build_source(self, root):
