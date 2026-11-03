@@ -41,6 +41,8 @@ A screenshot is not the video. It carries player chrome, surrounding desktop, an
 
 **Then set `--reference-frame` to that frame.** The tracker pins the box at the reference frame and expands from there in both directions, so the reference frame is where the box is *known* to be correct. Leaving it at the interval midpoint places the box on the target at a moment when the subject may have moved somewhere else entirely. Measured on the clip above, using the correct frame instead of the midpoint moved the tracked box off the chest in the middle of the interval and cut the ROI standard-deviation drop from 57% to 49%.
 
+**`--reference-frame` counts frames from the start of the interval, not from the start of the video.** If the red box was drawn on global frame 91 but you are covering frames 73–93, the reference is `91 - 73 = 18`. The value is clamped to the interval, so passing the global number silently pins the box to the last frame of the interval instead of failing — the render still succeeds and the track is simply wrong. Convert before you pass it.
+
 ## Keeping regions apart
 
 A thigh, a hand resting on the hip, and the bare midriff are frequently one connected skin region in the mask. The tracker then measures the whole blob and centres the blur between the legs, leaving the actual target exposed.
