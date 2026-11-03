@@ -59,6 +59,9 @@ AUDIO_SUITE_*
 # Locally generated ignore file kept by another editor
 .zcodeignore
 
+# Local working data produced by an assistant tool
+.workbuddy/
+
 # Local render frames and Python caches
 /outputs/
 __pycache__/
