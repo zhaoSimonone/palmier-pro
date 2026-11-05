@@ -60,6 +60,37 @@ Flash, white-fade and other blown-out transition frames carry no structure to ma
 
 When the same outfit appears in two separate segments, carry the box across with a **frame-to-frame homography**: match the reference frame of segment one against a frame in segment two with SIFT and RANSAC, then map the red rectangle through that matrix. Do not re-derive the box from the screenshot for the second segment — the screenshot only describes one instant.
 
+## Locate by what the scene means, not by what it looks like
+
+Every matcher in this skill compares images, and image comparison fails on footage whose subject is redrawn between frames. Generative video is the worst case: the same chest looks different in every frame, and a cut between a wide shot and a close-up moves and rescales the body in the frame at once. A fixed box then sits on the costume instead of the skin, and a fixed template slides onto the nearest similar patch.
+
+Anchor the track on a **semantic edge that survives the redraw** — a boundary between things that are genuinely different, not between textures that merely look alike:
+
+- exposed skin against black fabric is a strong boundary; a bare shoulder against a black dress reads the same in every frame.
+- The bottom of the exposed chest, where it meets the top of the garment, is a position the viewer can also name.
+
+Then measure that boundary per frame instead of matching a template:
+
+1. Build a skin mask in HSV.
+2. In a narrow column over the target, find the lowest row that is still skin. That is the lower edge of the exposed area.
+3. Smooth the series (median filter, then a cap on how far it may move between frames) so a hand passing through the column cannot drag the box away.
+4. Convert each edge position into a box: the horizontal centre from the frame's own anatomy, the vertical centre from the edge.
+
+Smooth the series **before** turning it into boxes. A median filter over a few frames removes the outliers that a single-frame measurement produces when a hand or a strap crosses the column.
+
+Then hand the result to the script with `--track-file`:
+
+```bash
+python3 scripts/blur_censor.py --input in.mp4 --output out.mp4 \
+  --start 2.0 --end 3.366667 --track-file track.json \
+  --blur 0.60 --zone-width 0.55 --zone-height 0.55 --sigma-max 50 \
+  --ffmpeg /opt/homebrew/bin/ffmpeg --ffprobe /opt/homebrew/bin/ffprobe
+```
+
+`track.json` is a JSON array of `[frame, x, y, w, h]` rows whose frame index counts **from the start of the interval**, not from the start of the video. Frames without a row inherit the last known box. The track is used verbatim — no smoothing is applied on top — so smooth it yourself first.
+
+Keep the two segments of a clip that contains a transition as two separate calls, each with its own `--track-file`, and stitch the results.
+
 ## Keeping regions apart
 
 A thigh, a hand resting on the hip, and the bare midriff are frequently one connected skin region in the mask. The tracker then measures the whole blob and centres the blur between the legs, leaving the actual target exposed.

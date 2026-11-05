@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -256,6 +257,93 @@ class RenderTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(output.is_file())
             self.assertFalse(list(root.glob('.blur-censor-*')))
+
+
+class TrackFileTests(unittest.TestCase):
+    """An external per-frame track replaces the built-in matcher."""
+
+    def write_track(self, root, rows):
+        path = root / 'track.json'
+        path.write_text(json.dumps(rows), encoding='utf-8')
+        return path
+
+    def test_track_file_supplies_one_box_per_frame(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = self.write_track(root, [[0, 10, 20, 30, 40], [1, 12, 22, 30, 40]])
+            track = censor.load_track_file(str(path), 4)
+            self.assertEqual(len(track), 4)
+            self.assertEqual((track[0]['x'], track[0]['y'], track[0]['w'], track[0]['h']), (10, 20, 30, 40))
+            self.assertEqual((track[1]['x'], track[1]['y']), (12, 22))
+            self.assertAlmostEqual(track[0]['cx'], 25.0)
+            self.assertAlmostEqual(track[0]['cy'], 40.0)
+
+    def test_missing_frame_inherits_the_previous_box(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = self.write_track(root, [[0, 10, 20, 30, 40], [2, 50, 60, 30, 40]])
+            track = censor.load_track_file(str(path), 4)
+            self.assertEqual((track[1]['x'], track[1]['y']), (10, 20))
+            self.assertEqual((track[2]['x'], track[2]['y']), (50, 60))
+            self.assertEqual((track[3]['x'], track[3]['y']), (50, 60))
+
+    def test_frame_index_outside_the_interval_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = self.write_track(root, [[0, 10, 20, 30, 40], [9, 10, 20, 30, 40]])
+            with self.assertRaises(ValueError):
+                censor.load_track_file(str(path), 4)
+
+    def test_a_track_without_a_first_box_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = self.write_track(root, [[1, 10, 20, 30, 40]])
+            with self.assertRaises(ValueError):
+                censor.load_track_file(str(path), 4)
+
+    def test_track_file_mode_renders(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            frames = root / 'frames'
+            frames.mkdir()
+            for index in range(FRAMES):
+                cv2.imwrite(str(frames / f'{index + 1:04d}.png'), make_frame(index))
+            source = root / 'source.mp4'
+            subprocess.run([FFMPEG, '-v', 'error', '-y', '-framerate', str(FPS),
+                            '-i', str(frames / '%04d.png'),
+                            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(source)], check=True)
+            rows = []
+            for index in range(FRAMES):
+                left = 20 + index * 8
+                rows.append([index, left, (HEIGHT - 40) // 2, 40, 40])
+            path = self.write_track(root, rows)
+            output = root / 'tracked.mp4'
+            command = [sys.executable, str(SCRIPT), '--input', str(source), '--output', str(output),
+                       '--track-file', str(path), '--blur', '0.20',
+                       '--ffmpeg', FFMPEG, '--ffprobe', FFPROBE]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output.is_file())
+            self.assertFalse(list(root.glob('.blur-censor-*')))
+
+    def test_track_file_cannot_be_combined_with_a_seed_or_region(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            frames = root / 'frames'
+            frames.mkdir()
+            for index in range(FRAMES):
+                cv2.imwrite(str(frames / f'{index + 1:04d}.png'), make_frame(index))
+            source = root / 'source.mp4'
+            subprocess.run([FFMPEG, '-v', 'error', '-y', '-framerate', str(FPS),
+                            '-i', str(frames / '%04d.png'),
+                            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(source)], check=True)
+            path = self.write_track(root, [[0, 10, 20, 30, 40]])
+            command = [sys.executable, str(SCRIPT), '--input', str(source),
+                       '--output', str(root / 'out.mp4'), '--track-file', str(path),
+                       '--seed', '40,60', '--ffmpeg', FFMPEG, '--ffprobe', FFPROBE]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('--track-file', result.stderr)
 
 
 if __name__ == '__main__':

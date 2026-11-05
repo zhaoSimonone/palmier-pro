@@ -209,6 +209,41 @@ def smooth_track(track: list[dict | None], sigma: float) -> list[dict]:
     return filled
 
 
+def load_track_file(path: str, count: int) -> list[dict]:
+    """Load per-frame boxes from an external tracker.
+
+    The file holds a JSON array of `[frame, x, y, w, h]` rows whose frame indices
+    count from the start of the interval. A frame without a row inherits the last
+    known box, so the track never has holes. Use this when the built-in matcher
+    cannot hold a lock — a target that deforms frame to frame, or one located by
+    a semantic cue rather than by image similarity.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError("--track-file must contain a JSON array of [frame, x, y, w, h] rows")
+    boxes: dict[int, tuple[int, int, int, int]] = {}
+    for row in data:
+        if len(row) != 5:
+            raise ValueError("--track-file rows must be [frame, x, y, w, h]")
+        index, x, y, w, h = (int(value) for value in row)
+        if not 0 <= index < count:
+            raise ValueError(f"--track-file frame index {index} is outside the interval")
+        if w <= 0 or h <= 0:
+            raise ValueError("--track-file boxes need a positive width and height")
+        boxes[index] = (x, y, w, h)
+    track: list[dict] = []
+    last: dict | None = None
+    for index in range(count):
+        if index in boxes:
+            x, y, w, h = boxes[index]
+            last = {"x": x, "y": y, "w": w, "h": h, "area": w * h,
+                    "cx": x + w / 2.0, "cy": y + h / 2.0}
+        elif last is None:
+            raise ValueError("--track-file has no box for the first frame of the interval")
+        track.append(dict(last))
+    return track
+
+
 def ellipse_mask(x0: int, y0: int, x1: int, y1: int, cx: float, cy: float,
                  rx: float, ry: float, plateau: float) -> np.ndarray:
     """Feathered elliptical falloff over the ROI (x0,y0,x1,y1) only."""
@@ -248,6 +283,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--band", default="", metavar="X1,X2",
                         help="column range excluded from skin detection so neighbouring regions "
                              "do not merge; defaults to the middle half of the gap between seeds")
+    parser.add_argument("--track-file", default="", metavar="JSON",
+                        help="per-frame boxes from an external tracker, as a JSON array of "
+                             "[frame, x, y, w, h] with interval-relative frame indices; "
+                             "overrides the built-in tracking and is used as-is, unsmoothed")
     parser.add_argument("--zone-width", type=float, default=0.95,
                         help="zone radius as a multiple of the tracked box width")
     parser.add_argument("--zone-height", type=float, default=0.85,
@@ -289,10 +328,12 @@ def main() -> int:
         raise ValueError("output must be an MP4 file")
     if args.output.resolve() == args.input.resolve():
         raise ValueError("output must differ from the input")
-    if not args.seed and not args.region:
+    if not args.seed and not args.region and not args.track_file:
         raise ValueError("provide at least one --seed or --region")
     if args.seed and args.region:
         raise ValueError("use either --seed or --region, not both")
+    if args.track_file and (args.seed or args.region):
+        raise ValueError("use --track-file on its own, not with --seed or --region")
     if len(args.seed) > 2 or len(args.region) > 2:
         raise ValueError("at most two regions are supported")
     if args.blur < 0 or args.core < 0 or args.core > 1 or args.milk < 0:
@@ -357,7 +398,9 @@ def main() -> int:
             reference = len(frame_paths) // 2
         reference = max(0, min(len(frame_paths) - 1, reference))
 
-        if args.seed:
+        if args.track_file:
+            tracks = [load_track_file(args.track_file, len(frame_paths))]
+        elif args.seed:
             hue = tuple(int(v) for v in parse_pair(args.hue, "hue"))
             sat = tuple(int(v) for v in parse_pair(args.sat, "sat"))
             val = tuple(int(v) for v in parse_pair(args.val, "val"))
@@ -385,7 +428,8 @@ def main() -> int:
                                      pad=args.track_pad, min_score=args.min_score)
                       for rect in rects]
 
-        smoothed = [smooth_track(track, args.smooth) for track in tracks]
+        smoothed = ([track for track in tracks] if args.track_file
+                    else [smooth_track(track, args.smooth) for track in tracks])
 
         for index, path in enumerate(frame_paths):
             image = cv2.imread(str(path))

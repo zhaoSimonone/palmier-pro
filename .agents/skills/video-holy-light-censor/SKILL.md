@@ -46,6 +46,8 @@ If the user supplied a red-box screenshot, treat it as guidance, not as coordina
 
    When the region is smooth skin or a shadow, template matching has no texture to latch onto. Give it context with `--track-pad N` (matching only — the blur still covers the region alone), keep the per-frame jump bounded with `--search-radius R`, and reject implausible matches with `--min-score S`.
 
+   When the subject is redrawn between frames — generative video, a heavy costume change, a cut between a wide shot and a close-up — no image matcher can hold a lock. Locate the region by a semantic edge instead (the line where exposed skin meets the garment) and feed the per-frame boxes in with `--track-file`, a JSON array of `[frame, x, y, w, h]` rows whose frame index counts from the start of the interval. The recipe is in [references/region-detection.md](references/region-detection.md).
+
    The output must be a new `.mp4`; the script refuses to overwrite an existing path and refuses any output whose extension is not `.mp4`.
 
 5. Verify before showing the result. Do not trust a zero exit code.
@@ -77,6 +79,7 @@ If the user supplied a red-box screenshot, treat it as guidance, not as coordina
 - **The mask jitters or slides.** Raise `--smooth` to smooth the track over time, or move `--reference-frame` to a frame where the target is clearly visible.
 - **The tracked box drifts off the target (`--region` mode).** The template had no texture to match on and the search window let it wander. Add `--track-pad 60–100` to give the match surrounding context, tighten `--search-radius` to 15–25, and set `--min-score` around 0.6 so an implausible frame holds position instead of jumping.
 - **The tracked box slides sideways although the target is still.** The subject's own outline changed — a hand swept in front of the target — so the reference template no longer matches. Check by matching each frame against the previous one: if the frame-to-frame centre never moves, the target is stationary and the template is the problem. Lock the box with `--search-radius 3` and `--min-score 0.95`, or split the interval. See [references/region-detection.md](references/region-detection.md).
+- **The blur sits on the costume instead of the skin.** The framing changed between shots, so the body moved and rescaled inside the frame. Locate the region by a semantic edge per frame and pass the boxes in with `--track-file` instead of relying on the matcher.
 - **The tracked box lags behind the target.** `--search-radius` is smaller than the real per-frame displacement. Raise it.
 - **The box is correct at the start but wrong later.** `--reference-frame` points at a frame the target had already moved away from. Set it to the frame the user's box was drawn on — see the screenshot-mapping procedure in [references/region-detection.md](references/region-detection.md). Remember that the value counts from the start of the interval, not from the start of the video; it is clamped rather than rejected, so a wrong number produces a wrong track instead of an error.
 - **The output looks like a white glow instead of a blur.** `--core` is non-zero or `--milk` is too high. Set `--core 0` and lower `--milk`.

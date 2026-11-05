@@ -20,6 +20,7 @@ The knob ladder, the feedback-to-knob mapping, and the numeric checks that decid
 | `--track-pad` | 0 | extra pixels of context added around a `--region` box **for matching only**. The blur still covers the region alone. Raise it when the target is smooth skin or shadow with no texture of its own. |
 | `--search-radius` | 60 | how far a `--region` template's centre may move per frame, in pixels. |
 | `--min-score` | 0.0 | hold the previous position when the best template match scores below this (0–1). 0 accepts every match. |
+| `--track-file` | none | per-frame boxes from an external tracker, as a JSON array of `[frame, x, y, w, h]` with interval-relative frame indices. Overrides the built-in tracking and is used as-is, unsmoothed. |
 
 ## Zone size arithmetic — get this right first
 
