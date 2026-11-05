@@ -77,6 +77,7 @@ This ladder came out of a real six-round iteration. Read the complaint, change o
 | "旁边白衣服脏了" / "糊到裙子上" | `--zone-width` / `--zone-height` down | The rim has spilled onto the neighbouring garment. |
 | "腿变黑了" | `--sigma-max` down | The blur is reaching into a dark neighbour. |
 | "糊块飘了 / 跟不上" (region mode) | `--track-pad` up, `--search-radius` up | The template had no context to match on and the window was too tight to follow the motion. |
+| "糊块位置不对 / 自己乱跑" (region mode) | `--search-radius` down to 3–5, `--min-score` up to 0.9–0.95 | The subject deformed, so the reference template no longer matches and the match slides onto a neighbouring region. A tight window with a high confidence floor holds the box where it was verified. |
 | "糊块卡住不动" (region mode) | `--min-score` up | The match was below the confidence floor and the position was being held. |
 
 Push in this order: disable the core, enlarge the zone, then deepen the blur. Deepening the blur first dissolves the body shape and is hard to undo.

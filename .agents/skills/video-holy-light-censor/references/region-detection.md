@@ -43,6 +43,23 @@ A screenshot is not the video. It carries player chrome, surrounding desktop, an
 
 **`--reference-frame` counts frames from the start of the interval, not from the start of the video.** If the red box was drawn on global frame 91 but you are covering frames 73–93, the reference is `91 - 73 = 18`. The value is clamped to the interval, so passing the global number silently pins the box to the last frame of the interval instead of failing — the render still succeeds and the track is simply wrong. Convert before you pass it.
 
+## When the target deforms, the fixed template drifts
+
+`--region` mode matches one patch cut from the reference frame against every other frame. That works while the subject keeps the same shape. It fails when the subject's own outline changes: a hand sweeping in front of the chest, a costume changing, a body rotating. The whole patch no longer resembles the reference, so normalised correlation slides onto whatever nearby region happens to correlate better, and the blur walks off the target.
+
+The symptom is a track whose centre wanders 100 px while the target never moved. Diagnose it before tuning anything: match each frame against the **previous** frame instead of the reference frame. If the frame-to-frame match returns the same centre every time, the target is stationary and the template drift is a matching artefact.
+
+Two ways forward:
+
+- **The target really is stationary** — lock the box where you know it belongs. `--search-radius 3` with `--min-score 0.95` keeps the reported box within a few pixels of the reference: a match below the confidence floor holds the previous position, and a tight window cannot jump. On one clip this brought the deviation from the true centre down from 28 px to 4 px, with the blur landing exactly where the red box was.
+- **The target moves** — the fixed template is the wrong tool. Track with the previous frame as the template (frame-to-frame block matching) so each step only has to absorb one frame of motion. The script has no such mode; implement it as a pre-pass that produces the box per frame and composite from those, or cut the interval into pieces short enough that the reference template stays valid.
+
+## Overexposed transition frames break the interval
+
+Flash, white-fade and other blown-out transition frames carry no structure to match on, and a costume change replaces the target's appearance entirely. Both split a clip into intervals that must be rendered separately — one call per uninterrupted segment, each with its own `--reference-frame` and `--start` / `--end`.
+
+When the same outfit appears in two separate segments, carry the box across with a **frame-to-frame homography**: match the reference frame of segment one against a frame in segment two with SIFT and RANSAC, then map the red rectangle through that matrix. Do not re-derive the box from the screenshot for the second segment — the screenshot only describes one instant.
+
 ## Keeping regions apart
 
 A thigh, a hand resting on the hip, and the bare midriff are frequently one connected skin region in the mask. The tracker then measures the whole blob and centres the blur between the legs, leaving the actual target exposed.
