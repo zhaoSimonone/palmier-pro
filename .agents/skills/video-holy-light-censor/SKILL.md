@@ -1,6 +1,6 @@
 ---
 name: video-holy-light-censor
-description: Obscure a sensitive body region in a video with a tracked, feathered, pixel-level Gaussian blur, optionally adding a small white core. Use this skill when the user asks to 遮挡 / 打码 / 模糊 / 圣光遮挡 a body area such as 大腿, 胯部, 胸部, 臀部, or 露出部位, or asks to apply a "圣光" censoring effect to a video. Do not use it for GIF/PNG sticker overlays (use video-overlay-censor), fixed rectangular sticker or watermark covers (use video-exact-sticker-cover), or makeup and beauty overlays (use video-face-makeup).
+description: Obscure a sensitive body region in a video with a tracked, feathered, pixel-level Gaussian blur, optionally adding a small white core, a sticker-style white glow with hand-drawn lettering and emoji-like decorations, or a pink hand-lettered Korean holy-light sticker (白色圣光 + 粉色文字). Supports several separate time intervals in one render, for example two different costumes in a change-outfit video. Use this skill when the user asks to 遮挡 / 打码 / 模糊 / 圣光遮挡 / 白光遮挡 / 闪光遮挡 / 表情包样式遮挡 / 粉色韩文圣光 / 韩国综艺圣光贴纸 a body area such as 大腿, 胯部, 胸部, 臀部, 大腿根部, 露出部位, or asks to 也遮挡 / 再加一段 for another costume or scene, or asks to apply a "圣光" censoring effect to a video. Do not use it for user-supplied GIF/PNG sticker overlays (use video-overlay-censor), fixed rectangular sticker or watermark covers (use video-exact-sticker-cover), or makeup and beauty overlays (use video-face-makeup).
 ---
 
 # Video Holy-Light Censor
@@ -14,7 +14,7 @@ This skill owns the *decisions*: which interval needs work, where the region is,
 - The source video path. If the user sent a screenshot with a red box instead of a video, ask for the video.
 - Which region to obscure, in the user's words (大腿 / 胯部 / 胸部 / 臀部 / 露出部位). Map it to one or two seed points in source pixels.
 - The time range that needs covering. Inspect the whole clip first: a costume change or a cut usually means only part of the video needs the effect.
-- Whether the user wants pure blur or blur plus a visible white glow. Default to pure blur.
+- Which look: pure blur (default), emoji-style white glow, or the pink Korean holy-light sticker (白色圣光 + 粉色文字).
 
 If the user supplied a red-box screenshot, treat it as guidance, not as coordinates: map it to source pixels before use. Screenshots carry player chrome, padding, and scaling, so their pixel coordinates are not source-video coordinates.
 
@@ -60,6 +60,86 @@ If the user supplied a red-box screenshot, treat it as guidance, not as coordina
 
 7. Deliver the output as a new file with an absolute path, and state which interval was covered and which parameters were used. Keep every earlier version; do not overwrite a previous delivery.
 
+## Sticker-style white glow
+
+Opt-in look for requests like 白光遮挡 / 闪光遮挡 / 表情包样式遮挡. The default pipeline stays a pure blur; `--sticker-style` adds an opaque feathered white light patch over the tracked region with hand-drawn lettering, hearts, exclamation marks and sparkles on top. The decal follows the tracked centre and breathes slightly, so it reads as a sticker reacting to the shot instead of a pasted rectangle.
+
+```bash
+python3 scripts/blur_censor.py \
+  --input /path/to/input.mp4 --output /path/to/output_表情包白光.mp4 \
+  --start 3.2 --end 6.466667 --region 270,500,160,130 --offset 20,10 \
+  --zone-width 0.50 --zone-height 0.60 --plateau 0.70 --milk 5 --core 0.18 \
+  --sticker-style --sticker-text "喵~" --glow 0.90 --glow-scale 1.00
+```
+
+| Flag | Default | What it controls |
+|---|---|---|
+| `--sticker-style` | off | enables the white light and decal layer |
+| `--sticker-text` | `喵~` | hand-drawn lettering; pass `""` for symbols only |
+| `--glow` | 0.90 | white opacity at the centre; lower it if the patch reads as a hotspot |
+| `--glow-scale` | 1.30 | light radius relative to the blur zone radius |
+| `--offset` | `0,0` | shifts the zone centre in pixels without changing the tracked template |
+
+For a small patch — requests like 范围太大 / 小一半 / 只挡核心 — lower `--zone-width`, `--zone-height` **and** `--glow-scale` together. The visible white disc has radius `zone radius × glow-scale`, so shrinking only the blur leaves an oversized light. Halving both roughly halves the patch. Use `--offset DX,DY` to put the light on the exact target: measure the rendered patch centroid from a frame rather than assuming it equals the `--region` centre, because template tracking follows the subject and can land 20 px away.
+
+Keep `--core` and `--milk` modest: the sticker layer already supplies the white, and a strong core underneath creates a hard bright rectangle. With the glow on, verification uses a different rule than pure blur — the ROI is meant to become bright and structureless, so check that no body outline survives and that the feathered rim stays off the neighbouring garment, rather than requiring `p99` to fall. The Chinese lettering needs a CJK font; without one the decals still render but the text is skipped.
+
+## Pink Korean holy-light (白色圣光 + 粉色文字)
+
+Use `--sticker-look korean` for requests like 粉色韩文圣光 / 韩国综艺圣光贴纸 / 白色圣光加粉色文字 / 只遮大腿根部及两侧. It replaces the emoji look with a soft white glow made of overlapping lobes and pink hand-lettered Hangul (`너무 귀여워` by default), rotated 17°, with quotation marks, exclamation marks, a dotted flourish, hearts, sparkles and pink dots. The look lives in `scripts/korean_holy_light.py`; tracking, interval selection, encoding and audio still come from `blur_censor.py`.
+
+```bash
+python3 scripts/blur_censor.py \
+  --input /path/to/input.mp4 --output /path/to/output_粉色韩文圣光.mp4 \
+  --start 3.4 --end 11.57 --region 0,0,720,1280 --offset 0,355 \
+  --sticker-look korean --sticker-compact \
+  --ffmpeg /path/to/ffmpeg --ffprobe /path/to/ffprobe
+```
+
+`--region 0,0,WIDTH,HEIGHT` locks the tracked centre at the frame centre; `--offset 0,355` then moves the light onto the hip band of a 720×1280 clip. For a moving subject, track a rectangle around the hip area instead and adjust `--offset` from a rendered frame. Use **one** region: the two lobes already cover both sides, and the script rejects a second one.
+
+| Flag | Default | What it controls |
+|---|---|---|
+| `--sticker-look korean` | `emoji` | selects the pink Hangul look; also enables the sticker layer |
+| `--sticker-compact` | off | two small hip lobes instead of the wide three-lobe glow; keeps the centre skirt and gold ornament visible |
+| `--holy-size` | `auto` | light half-width,half-height in source pixels; `auto` uses `0.60 × width, 0.185 × height` |
+| `--glow-scale` | 1.00 | multiplier on `--holy-size` |
+| `--glow` | 0.90 / 0.87 | white opacity at the centre (wide / compact) |
+| `--sticker-text` | `너무 귀여워` | Hangul lettering; pass `""` for symbols only |
+| `--offset` | `0,0` | moves the light centre without changing the tracked template |
+
+The korean look owns its own light-shaped Gaussian blur and whitening. It therefore skips the elliptical zone blur, `--core` and `--milk`; `--blur`, `--zone-width`, `--zone-height`, `--plateau` and `--sigma-*` have no effect with this look. Do not stack both looks.
+
+**Wide vs compact.** Without `--sticker-compact`, three lobes cover the whole hip band and wash the centre garment white; that was rejected as 范围太大 on the reference clip. `--sticker-compact` is the approved setting for 只遮大腿根部及两侧: left/right lobe opacity ≈ 0.87, centre ≈ 0.35, top ≈ 0, so the black skirt and gold waist ornament stay readable. Shrink further with `--glow-scale` or `--holy-size`, not by re-enabling the zone blur.
+
+**Font.** Lettering needs a Korean handwriting face, resolved from `NanumScript.ttc` (macOS asset font, face index 1) with `AppleSDGothicNeo.ttc` as the last candidate. If no candidate exists and text is non-empty, the script fails with an explicit error instead of silently dropping the lettering. Pass `--sticker-text ""` for symbols only when no Korean font is available.
+
+**Verification.** Same frame count, fps, dimensions and audio as the source. On the reference 720×1280 / 30 fps clip, the two marked hip ROIs dropped from std 60.7 to 24.7, while the upper body (y < 700) stayed at 0.88 mean absolute difference and frames outside the interval at 0.77. Check that the black skirt between the lobes is still visible — that is the point of the compact look — and that no skin triangle survives at the lobe rims.
+
+## Several intervals in one render
+
+Use `--segment` when one clip needs the same treatment in more than one time range — for example a change-outfit video where two costumes must be covered. Each segment has its own interval, tracked rectangle, offset and temporal smoothing; blur, white glow, lettering and every other look parameter stay shared, so both patches read as the same effect. The video is still encoded once from the original frames, so an already-approved segment is not re-encoded.
+
+```bash
+python3 scripts/blur_censor.py \
+  --input /path/to/input.mp4 --output /path/to/output_two_costumes.mp4 \
+  --segment "start=3.2;end=6.466667;region=270,500,160,130;offset=20,40;smooth=2" \
+  --segment "start=9.933333;end=13.033333;region=270,500,160,130;offset=1,76;smooth=12" \
+  --zone-width 0.40 --zone-height 0.48 --blur 0.41 --plateau 0.70 --milk 5 --core 0.18 \
+  --sticker-style --sticker-text "喵~" --glow 0.90 --glow-scale 1.00
+```
+
+| Key | Required | What it controls |
+|---|---|---|
+| `start` / `end` | yes | interval in seconds, inside the video duration |
+| `region` | yes | `X,Y,W,H` template to track in that interval |
+| `offset` | no | `DX,DY` pixel shift for that segment's patch |
+| `smooth` | no | temporal smoothing of that segment's track; defaults to `--smooth` |
+
+Segments may be given in any order; they are sorted and must not overlap. Do not mix `--segment` with `--start` / `--end` / `--region` / `--seed`. The JSON summary lists each one under `segments`. Frames outside every segment come straight from the source, so adding a second segment leaves an existing one bit-identical.
+
+Treat each costume as a separate tracking problem even when the actor stands in the same place. Measure the per-segment centre spread first; a new costume can make the light wander out of the marked box. Raise that segment's `smooth` rather than enlarging its zone, which would undo a size the user already approved. Find interval boundaries from exact frame differences rather than `-ss` thumbnails, and map screenshot annotation boxes with a homography before choosing the second `offset`.
+
 ## Output contract
 
 - A new `.mp4` file with the original dimensions, frame rate, and duration, with the source audio preserved (`--audio copy` by default; use `--audio aac` when the source audio cannot be stream-copied).
@@ -74,6 +154,8 @@ If the user supplied a red-box screenshot, treat it as guidance, not as coordina
 - **The output looks like a white glow instead of a blur.** `--core` is non-zero or `--milk` is too high. Set `--core 0` and lower `--milk`.
 - **The detail is still legible.** Raise `--blur` (stronger sigma) and/or `--zone-width` / `--zone-height` (larger footprint). Raising `--blur` too far dissolves the body shape; the region stops reading as a leg.
 - **The script exits non-zero.** Read stderr. A `CalledProcessError` carries the FFmpeg message. The temporary work directory is created next to the output and is removed on exit, including on failure.
+- **Korean lettering fails with a font error.** Install Nanum Pen Script (`NanumScript.ttc`) or pass `--sticker-text ""` to keep the pink symbols only. The script never silently drops the lettering.
+- **The pink light washes the whole skirt.** `--sticker-compact` is missing, or `--glow-scale` / `--holy-size` is too large. Start with `--sticker-compact --glow-scale 1.0`.
 - **Encoding fails on the final mux.** Check disk space for the PNG frame cache; rendering holds full-canvas frames on the output volume.
 
 ## Boundaries
@@ -89,6 +171,10 @@ If the user supplied a red-box screenshot, treat it as guidance, not as coordina
 Input: `用 video-holy-light-censor 把这个视频大腿露出来的部分挡一下：/path/to/source.mp4`
 
 Output: a new `source_圣光遮挡.mp4` where the exposed thigh region in the affected interval is covered by a soft feathered blur, with the rest of the clip and the audio untouched.
+
+Input: `用 video-holy-light-censor 给变装后的片段加粉色韩文圣光，只遮大腿根部及两侧：/path/to/source.mp4`
+
+Output: a new `source_粉色韩文圣光.mp4` with `--sticker-look korean --sticker-compact`: two soft white lobes on the hip sides, pink hand-lettered Hangul over them, and the centre costume still visible.
 
 ## Windows (win32) platform notes
 

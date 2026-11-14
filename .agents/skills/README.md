@@ -25,3 +25,15 @@ Invoke with: `用 video-face-makeup 给这个视频补轻薄暖桃妆：/path/to
 Obscure a sensitive body region in a video with a tracked, feathered, pixel-level Gaussian blur (圣光遮挡). Use when the user asks to 遮挡 / 打码 / 模糊 a moving area such as 大腿, 胯部, 胸部, or 臀部. Do not use for GIF or PNG sticker overlays, fixed rectangular sticker covers, or makeup effects.
 
 Invoke with: `用 video-holy-light-censor 遮挡这个视频大腿露出来的部分：/path/to/source.mp4`
+
+For 白光遮挡 / 闪光遮挡 / 表情包样式遮挡, pass `--sticker-style`: it adds a feathered white light patch with hand-drawn lettering, hearts, exclamation marks and sparkles over the tracked region. `--sticker-text` changes the lettering (default `喵~`), `--glow` sets the white opacity, `--glow-scale` sets how far the halo spreads. The default pipeline remains a pure blur when the flag is absent.
+
+Invoke with: `用 video-holy-light-censor 给这个视频加表情包样式的白光遮挡：/path/to/source.mp4`
+
+For a change-outfit clip that needs the same treatment in several scenes, repeat `--segment "start=..;end=..;region=X,Y,W,H;offset=DX,DY;smooth=.."`. Each segment keeps its own interval, tracking rectangle, offset and smoothing while sharing the look parameters, and the video is encoded only once.
+
+Invoke with: `用 video-holy-light-censor 按相同方式把这个视频 Bunny 段的胸部也遮挡一下：/path/to/source.mp4`
+
+For 粉色韩文圣光 / 韩国综艺圣光贴纸 / 白色圣光加粉色文字, pass `--sticker-look korean`: overlapping white light lobes plus pink hand-lettered Hangul (`너무 귀여워`), with quotation marks, exclamation marks, hearts and sparkles. It lives in `scripts/korean_holy_light.py` and reuses the same tracking, interval and encoding pipeline. Add `--sticker-compact` for the approved 只遮大腿根部及两侧 variant — two small lobes that leave the centre costume visible — and tune the footprint with `--holy-size`, `--glow-scale` and `--glow`. Lettering needs a Korean handwriting font (`NanumScript.ttc`).
+
+Invoke with: `用 video-holy-light-censor 给变装后的片段加粉色韩文圣光，只遮大腿根部及两侧：/path/to/source.mp4`

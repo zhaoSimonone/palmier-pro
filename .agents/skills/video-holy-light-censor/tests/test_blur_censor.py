@@ -1,5 +1,6 @@
 import importlib.util
 import os
+from fractions import Fraction
 from pathlib import Path
 import shutil
 import subprocess
@@ -12,6 +13,7 @@ import cv2
 import numpy as np
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'blur_censor.py'
+sys.path.insert(0, str(SCRIPT.parent))
 spec = importlib.util.spec_from_file_location('blur_censor', SCRIPT)
 censor = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(censor)
@@ -63,6 +65,49 @@ class ArgumentTests(unittest.TestCase):
     def test_parse_pair_rejects_non_finite(self):
         with self.assertRaises(ValueError):
             censor.parse_pair('nan,1', '--seed')
+
+    def test_offset_defaults_to_zero_and_parses_a_shift(self):
+        with patch.object(sys, 'argv', ['blur_censor', '--input', 'in.mp4', '--output', 'out.mp4']):
+            args = censor.parse_args()
+        self.assertEqual(args.offset, '0,0')
+        self.assertEqual(censor.parse_pair('20,10', '--offset'), (20.0, 10.0))
+
+    def test_parse_segment_reads_every_field(self):
+        seg = censor.parse_segment(
+            'start=3.2;end=6.4;region=270,500,160,130;offset=20,40;smooth=12',
+            '--segment[0]', 2.0)
+        self.assertEqual(seg['start'], 3.2)
+        self.assertEqual(seg['end'], 6.4)
+        self.assertEqual(seg['rects'], [(270.0, 500.0, 160.0, 130.0)])
+        self.assertEqual(seg['offset'], (20.0, 40.0))
+        self.assertEqual(seg['smooth'], 12.0)
+        self.assertEqual(seg['seeds'], [])
+
+    def test_parse_segment_defaults_and_rejects_bad_input(self):
+        seg = censor.parse_segment('start=1;end=2;region=1,2,3,4', '--segment', 2.0)
+        self.assertEqual(seg['offset'], (0.0, 0.0))
+        self.assertEqual(seg['smooth'], 2.0)
+        for text in ('start=1;end=2', 'start=1;end=2;region=1,2,3',
+                     'start=1;end=2;region=1,2,0,4',
+                     'start=1;end=2;region=1,2,3,4;smooth=-1'):
+            with self.subTest(text=text):
+                with self.assertRaises(ValueError):
+                    censor.parse_segment(text, '--segment', 2.0)
+
+    def test_build_segments_orders_intervals_and_rejects_overlap(self):
+        base = ['blur_censor', '--input', 'in.mp4', '--output', 'out.mp4']
+        with patch.object(sys, 'argv', base + [
+                '--segment', 'start=6;end=8;region=1,2,3,4',
+                '--segment', 'start=1;end=3;region=1,2,3,4']):
+            args = censor.parse_args()
+        segments = censor.build_segments(args, 10.0, 100, 10.0, (0.0, 0.0))
+        self.assertEqual([(s['first'], s['last']) for s in segments], [(10, 30), (60, 80)])
+        with patch.object(sys, 'argv', base + [
+                '--segment', 'start=1;end=5;region=1,2,3,4',
+                '--segment', 'start=4;end=8;region=1,2,3,4']):
+            overlapping = censor.parse_args()
+        with self.assertRaises(ValueError):
+            censor.build_segments(overlapping, 10.0, 100, 10.0, (0.0, 0.0))
 
 
 class MaskTests(unittest.TestCase):
@@ -123,6 +168,23 @@ class GeometryTests(unittest.TestCase):
             self.assertAlmostEqual(box['cy'], 70.0, places=5)
 
 
+class StickerGlowTests(unittest.TestCase):
+    def test_glow_is_opaque_at_centre_and_fades_to_zero(self):
+        alpha, sticker = censor.build_sticker_glow(120, 100, 1.3, 0.9, '喵~')
+        height, width = alpha.shape
+        self.assertGreater(alpha[height // 2, width // 2], 0.85)
+        self.assertAlmostEqual(float(alpha[0, 0]), 0.0, places=3)
+        self.assertEqual(sticker.shape, (height, width, 4))
+        self.assertGreater(int(sticker[..., 3].max()), 0)
+
+    def test_glow_whitens_the_tracked_centre_without_touching_the_corner(self):
+        frame = np.full((200, 200, 3), 60, np.uint8)
+        alpha, sticker = censor.build_sticker_glow(40, 35, 1.3, 0.9, '')
+        censor.apply_sticker_glow(frame, 100.0, 100.0, alpha, sticker, 1.0)
+        self.assertGreater(float(frame[100, 100].mean()), 180)
+        self.assertEqual(int(frame[0, 0].mean()), 60)
+
+
 @unittest.skipUnless(FFMPEG and FFPROBE, 'FFmpeg and ffprobe required')
 class RenderTests(unittest.TestCase):
     def build_source(self, root):
@@ -155,6 +217,7 @@ class RenderTests(unittest.TestCase):
             video = next(s for s in streams if s['codec_type'] == 'video')
             self.assertEqual((video['width'], video['height']), (WIDTH, HEIGHT))
             self.assertEqual(int(video['nb_frames']), FRAMES)
+            self.assertEqual(float(Fraction(video['r_frame_rate'])), float(FPS))
 
             def frame_at(path, index):
                 raw = subprocess.run([FFMPEG, '-v', 'error', '-i', str(path), '-f', 'rawvideo',
@@ -188,6 +251,36 @@ class RenderTests(unittest.TestCase):
             result = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(output.is_file())
+            self.assertFalse(list(root.glob('.blur-censor-*')))
+
+    def test_two_segments_render_with_an_untouched_gap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = self.build_source(root)
+            output = root / 'two_segments.mp4'
+            command = [sys.executable, str(SCRIPT), '--input', str(source), '--output', str(output),
+                       '--segment', 'start=0;end=0.4;region=30,40,40,40',
+                       '--segment', 'start=0.6;end=1.0;region=30,40,40,40',
+                       '--blur', '0.20', '--zone-width', '1.0', '--zone-height', '1.0',
+                       '--ffmpeg', FFMPEG, '--ffprobe', FFPROBE]
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            video = next(s for s in censor.probe(FFPROBE, output)['streams']
+                         if s['codec_type'] == 'video')
+            self.assertEqual(int(video['nb_frames']), FRAMES)
+
+            def frame_at(path, index):
+                raw = subprocess.run([FFMPEG, '-v', 'error', '-i', str(path), '-f', 'rawvideo',
+                                      '-pix_fmt', 'bgr24', '-'], check=True,
+                                     capture_output=True).stdout
+                return np.frombuffer(raw, np.uint8).reshape(-1, HEIGHT, WIDTH, 3)[index].astype(np.float32)
+
+            gap = float(np.abs(frame_at(source, 5) - frame_at(output, 5)).mean())
+            first_segment = float(np.abs(frame_at(source, 1) - frame_at(output, 1)).mean())
+            second_segment = float(np.abs(frame_at(source, 8) - frame_at(output, 8)).mean())
+            self.assertLess(gap, 2.0)
+            self.assertGreater(first_segment, gap)
+            self.assertGreater(second_segment, gap)
             self.assertFalse(list(root.glob('.blur-censor-*')))
 
 
