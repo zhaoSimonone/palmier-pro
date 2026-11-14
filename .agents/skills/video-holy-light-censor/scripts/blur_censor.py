@@ -144,20 +144,28 @@ def track_skin(mask_paths: list[Path], reference: int, seed: tuple[float, float]
 
 
 def track_template(frame_paths: list[Path], reference: int, seed: tuple[float, float],
-                   size: tuple[int, int], radius: int) -> list[dict | None]:
-    """Track a fixed-size patch around the seed by normalized cross-correlation."""
+                   size: tuple[int, int], radius: int, pad: int = 0,
+                   min_score: float = 0.0) -> list[dict | None]:
+    """Track a fixed-size patch around the seed by normalized cross-correlation.
+
+    `pad` grows the matched template with surrounding context while the reported
+    box keeps the requested region size, so a smooth target with no texture of
+    its own can still be locked onto by the detail around it. `radius` bounds
+    how far the centre may move per frame.
+    """
     count = len(frame_paths)
     half_w, half_h = max(1, size[0] // 2), max(1, size[1] // 2)
     first = cv2.imread(str(frame_paths[reference]), cv2.IMREAD_GRAYSCALE)
     sx, sy = int(seed[0]), int(seed[1])
-    template = first[max(0, sy - half_h):sy + half_h, max(0, sx - half_w):sx + half_w]
+    template = first[max(0, sy - half_h - pad):sy + half_h + pad,
+                     max(0, sx - half_w - pad):sx + half_w + pad]
     if template.size == 0:
         raise ValueError("seed point is outside the frame")
     th, tw = template.shape[:2]
     track: list[dict | None] = [None] * count
     position = (float(sx), float(sy))
-    track[reference] = {"x": sx - tw // 2, "y": sy - th // 2, "w": tw, "h": th,
-                         "area": tw * th, "cx": position[0], "cy": position[1]}
+    track[reference] = {"x": sx - size[0] // 2, "y": sy - size[1] // 2, "w": size[0], "h": size[1],
+                         "area": size[0] * size[1], "cx": position[0], "cy": position[1]}
     for direction in (1, -1):
         index = reference
         while True:
@@ -166,18 +174,21 @@ def track_template(frame_paths: list[Path], reference: int, seed: tuple[float, f
                 break
             frame = cv2.imread(str(frame_paths[nxt]), cv2.IMREAD_GRAYSCALE)
             px, py = position
-            x0 = max(0, int(px - tw - radius)); x1 = min(frame.shape[1], int(px + tw + radius))
-            y0 = max(0, int(py - th - radius)); y1 = min(frame.shape[0], int(py + th + radius))
+            x0 = max(0, int(px - tw // 2 - radius)); x1 = min(frame.shape[1], int(px + tw // 2 + radius + 1))
+            y0 = max(0, int(py - th // 2 - radius)); y1 = min(frame.shape[0], int(py + th // 2 + radius + 1))
             window = frame[y0:y1, x0:x1]
             if window.shape[0] < th or window.shape[1] < tw:
                 track[nxt] = dict(track[index])
             else:
                 response = cv2.matchTemplate(window, template, cv2.TM_CCOEFF_NORMED)
-                _, _, _, location = cv2.minMaxLoc(response)
-                position = (x0 + location[0] + tw / 2.0, y0 + location[1] + th / 2.0)
-                track[nxt] = {"x": int(position[0] - tw / 2), "y": int(position[1] - th / 2),
-                              "w": tw, "h": th, "area": tw * th,
-                              "cx": position[0], "cy": position[1]}
+                _, score, _, location = cv2.minMaxLoc(response)
+                if score < min_score:
+                    track[nxt] = dict(track[index])
+                else:
+                    position = (x0 + location[0] + tw / 2.0, y0 + location[1] + th / 2.0)
+                    track[nxt] = {"x": int(position[0] - size[0] // 2), "y": int(position[1] - size[1] // 2),
+                                  "w": size[0], "h": size[1], "area": size[0] * size[1],
+                                  "cx": position[0], "cy": position[1]}
             index = nxt
     return track
 
@@ -199,6 +210,41 @@ def smooth_track(track: list[dict | None], sigma: float) -> list[dict]:
             for box, value in zip(filled, values):
                 box[key] = float(value)
     return filled
+
+
+def load_track_file(path: str, count: int) -> list[dict]:
+    """Load per-frame boxes from an external tracker.
+
+    The file holds a JSON array of `[frame, x, y, w, h]` rows whose frame indices
+    count from the start of the interval. A frame without a row inherits the last
+    known box, so the track never has holes. Use this when the built-in matcher
+    cannot hold a lock — a target that deforms frame to frame, or one located by
+    a semantic cue rather than by image similarity.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError("--track-file must contain a JSON array of [frame, x, y, w, h] rows")
+    boxes: dict[int, tuple[int, int, int, int]] = {}
+    for row in data:
+        if len(row) != 5:
+            raise ValueError("--track-file rows must be [frame, x, y, w, h]")
+        index, x, y, w, h = (int(value) for value in row)
+        if not 0 <= index < count:
+            raise ValueError(f"--track-file frame index {index} is outside the interval")
+        if w <= 0 or h <= 0:
+            raise ValueError("--track-file boxes need a positive width and height")
+        boxes[index] = (x, y, w, h)
+    track: list[dict] = []
+    last: dict | None = None
+    for index in range(count):
+        if index in boxes:
+            x, y, w, h = boxes[index]
+            last = {"x": x, "y": y, "w": w, "h": h, "area": w * h,
+                    "cx": x + w / 2.0, "cy": y + h / 2.0}
+        elif last is None:
+            raise ValueError("--track-file has no box for the first frame of the interval")
+        track.append(dict(last))
+    return track
 
 
 def ellipse_mask(x0: int, y0: int, x1: int, y1: int, cx: float, cy: float,
@@ -357,9 +403,22 @@ def parse_args() -> argparse.Namespace:
                         help="point inside the region to obscure; repeat for a second region")
     parser.add_argument("--region", action="append", default=[], metavar="X,Y,W,H",
                         help="explicit rectangle to track instead of skin detection; repeatable")
+    parser.add_argument("--track-pad", type=int, default=0,
+                        help="extra pixels of context added around the region for matching only; "
+                             "the blur still covers the region alone. Raise it when the target is "
+                             "smooth and has no texture of its own")
+    parser.add_argument("--search-radius", type=int, default=60,
+                        help="how far the tracked centre may move per frame, in pixels")
+    parser.add_argument("--min-score", type=float, default=0.0,
+                        help="hold the previous position when the best match scores below this; "
+                             "0 accepts every match")
     parser.add_argument("--band", default="", metavar="X1,X2",
                         help="column range excluded from skin detection so neighbouring regions "
                              "do not merge; defaults to the middle half of the gap between seeds")
+    parser.add_argument("--track-file", default="", metavar="JSON",
+                        help="per-frame boxes from an external tracker, as a JSON array of "
+                             "[frame, x, y, w, h] with interval-relative frame indices; "
+                             "overrides the built-in tracking and is used as-is, unsmoothed")
     parser.add_argument("--zone-width", type=float, default=0.95,
                         help="zone radius as a multiple of the tracked box width")
     parser.add_argument("--zone-height", type=float, default=0.85,
@@ -422,13 +481,15 @@ def main() -> int:
     if args.output.resolve() == args.input.resolve():
         raise ValueError("output must differ from the input")
     if args.segment:
-        if args.seed or args.region:
-            raise ValueError("use either --segment or --seed/--region, not both")
+        if args.seed or args.region or args.track_file:
+            raise ValueError("use either --segment or --seed/--region/--track-file, not both")
     else:
-        if not args.seed and not args.region:
-            raise ValueError("provide at least one --seed or --region")
+        if not args.seed and not args.region and not args.track_file:
+            raise ValueError("provide at least one --seed or --region or --track-file")
         if args.seed and args.region:
             raise ValueError("use either --seed or --region, not both")
+        if args.track_file and (args.seed or args.region):
+            raise ValueError("use --track-file on its own, not with --seed or --region")
         if len(args.seed) > 2 or len(args.region) > 2:
             raise ValueError("at most two regions are supported")
     if args.blur < 0 or args.core < 0 or args.core > 1 or args.milk < 0:
@@ -437,6 +498,12 @@ def main() -> int:
         raise ValueError("--zone-width and --zone-height must be positive")
     if not 0.0 < args.plateau < 1.0:
         raise ValueError("--plateau must be between 0 and 1")
+    if args.track_pad < 0:
+        raise ValueError("--track-pad must not be negative")
+    if args.search_radius < 0:
+        raise ValueError("--search-radius must not be negative")
+    if not 0.0 <= args.min_score <= 1.0:
+        raise ValueError("--min-score must be between 0 and 1")
     if args.min_area < 0:
         raise ValueError("--min-area must not be negative")
     look = args.sticker_look or ("emoji" if args.sticker_style else None)
@@ -513,7 +580,9 @@ def main() -> int:
             reference = max(0, min(len(frame_paths) - 1, reference))
             seg["reference"] = reference
 
-            if seg["seeds"]:
+            if args.track_file:
+                tracks = [load_track_file(args.track_file, len(frame_paths))]
+            elif seg["seeds"]:
                 mask_dir = temp / f"masks_{si}"
                 mask_dir.mkdir()
                 for index, path in enumerate(frame_paths):
@@ -525,10 +594,14 @@ def main() -> int:
             else:
                 tracks = [track_template(frame_paths, reference,
                                          (rect[0] + rect[2] / 2, rect[1] + rect[3] / 2),
-                                         (int(rect[2]), int(rect[3])), radius=60)
+                                         (int(rect[2]), int(rect[3])),
+                                         radius=args.search_radius,
+                                         pad=args.track_pad, min_score=args.min_score)
                           for rect in seg["rects"]]
 
-            smoothed = [smooth_track(track, seg["smooth"]) for track in tracks]
+            # An externally supplied track is already authoritative and unsmoothed.
+            smoothed = ([track for track in tracks] if args.track_file
+                        else [smooth_track(track, seg["smooth"]) for track in tracks])
             if seg["offset"] != (0.0, 0.0):
                 for boxes in smoothed:
                     for box in boxes:
@@ -651,7 +724,8 @@ def main() -> int:
         "videoFPS": fps,
         "videoSize": [width, height],
         "regions": len(primary["tracks"]),
-        "mode": "skin-seed" if primary["seeds"] else "template-rect",
+        "mode": ("track-file" if args.track_file else
+                 "skin-seed" if primary["seeds"] else "template-rect"),
         "blurFraction": args.blur,
         "zoneOffset": list(primary["offset"]),
         "stickerStyle": bool(look),

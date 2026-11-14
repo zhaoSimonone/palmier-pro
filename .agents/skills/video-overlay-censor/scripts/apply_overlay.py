@@ -23,7 +23,7 @@ def run(command: list[str]) -> subprocess.CompletedProcess[str]:
 def probe(ffprobe: str, path: Path) -> dict:
     result = run([
         ffprobe, "-v", "error", "-show_entries",
-        "format=duration:stream=index,codec_type,codec_name,duration,width,height,r_frame_rate,avg_frame_rate,sample_rate,channels",
+        "format=duration:stream=index,codec_type,codec_name,duration,start_time,width,height,r_frame_rate,avg_frame_rate,sample_rate,channels",
         "-of", "json", str(path),
     ])
     return json.loads(result.stdout)
@@ -201,6 +201,8 @@ def main() -> int:
     duration = finite(video_stream.get("duration"), "video duration")
     if duration <= 0:
         raise ValueError("video duration must be positive")
+    start_time = video_stream.get("start_time")
+    start_time = 0.0 if start_time in (None, "N/A") else finite(start_time, "video start_time")
     fps_text = video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate")
     numerator, denominator = (fps_text or "0/1").split("/", 1)
     if float(denominator) <= 0:
@@ -236,6 +238,12 @@ def main() -> int:
         command = [
             args.ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
             "-i", str(args.input), "-framerate", f"{video_fps:.12g}",
+        ]
+        if abs(start_time) > 1e-6:
+            # The source video stream does not start at PTS 0; shift the overlay
+            # frames to the same origin so overlay=shortest=1 keeps every source frame.
+            command += ["-itsoffset", f"{start_time:.6f}"]
+        command += [
             "-i", str(frame_dir / "%06d.png"),
             "-filter_complex", "[0:v][1:v]overlay=0:0:format=auto:shortest=1[v]",
             "-map", "[v]", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium",
@@ -254,6 +262,7 @@ def main() -> int:
         "duration": duration,
         "videoFPS": video_fps,
         "videoSize": [video_width, video_height],
+        "videoStartTime": start_time,
         "overlaySize": [args.width, height],
         "start": start,
         "end": end,
