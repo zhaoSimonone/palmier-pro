@@ -210,3 +210,27 @@ Rules learned while building the look:
 - Map red-box screenshots back to source pixels with a feature homography. The player chrome, white borders and filename strip make a plain width/height ratio wrong; on this clip the scale was 3.4039 with 127 inliers.
 - For a static subject, `--region 0,0,WIDTH,HEIGHT --offset 0,DY` locks the centre exactly, which is more stable than tracking a low-texture hip patch. Recompute `DY` for a different frame height: the reference used `centre_y − HEIGHT/2 = 995 − 640 = 355`.
 - `--holy-size auto` derives `rx = 0.60 × width`, `ry = 0.185 × height`. When the user asks for a smaller patch, lower `--glow-scale` (or `--holy-size`) rather than re-enabling the zone blur; that only adds a second, differently shaped blur.
+
+## Worked example: two misaligned boxes on a moving subject
+
+720×1280 / 24 fps clip, 217 frames, blue-haired elf costume. A screenshot with two red boxes mapped back with a partial affine (scale 3.404, 156 inliers, four picture corners landing on the frame bounds) to `(163,869)–(330,1029)` and `(405,971)–(517,1097)`. The right box is 85 px lower and 30% smaller than the left, so the compact preset — which puts both lobes at the same height — left the right box almost untouched even after `--glow-scale 0.62`.
+
+The winning setup used custom lobes plus an external track:
+
+```bash
+python3 scripts/blur_censor.py --input in.mp4 --output out.mp4 --start 0 \
+  --track-file track.json --sticker-look korean --sticker-compact \
+  --holy-size 200,140 --glow 0.84 \
+  --holy-lobes="-107,-33,120,112;107,52,88,98" \
+  --ffmpeg ... --ffprobe ...
+```
+
+`track.json` holds one `[frame, x, y, w, h]` row per frame whose box centre is the light centre. It was built by template-matching the rigid diamond belt ornament (50×45 patch), keeping matches with score ≥ 0.70, linearly interpolating the rest, then smoothing with σ=2.5 and adding a constant offset so the final frame lands on the marked midpoint. Frames 83–107 are a face close-up; their centre is set to `(-3000,-3000)`, which clips the light away without needing a second segment.
+
+Rules learned on this clip:
+
+- An elliptical falloff with a wide smoothstep and a 15 px Gaussian feather reads as glow; a hard superellipse core reads as two white cards. Light-shaped blur sigma should scale with the lobe size (`0.18 × max lobe rx`, about 22 px here), not with a small constant — a 5 px blur left a readable skin outline at the lower rim.
+- A weak central dip keeps the dark skirt and belt ornament readable between the lobes.
+- Centring on a rigid costume detail survives body sway better than a skin centroid: skin blobs merge with arms and drapes and jump by 100 px between adjacent frames.
+- `--holy-lobes` values usually start with a negative `dx`. argparse treats a leading `-` as an option, so pass it as `--holy-lobes=...` with an equals sign.
+- Verification: target ROI std 46.0 → 25.1 (p95 28.5, max 30.3), upper body y<700 MAE 0.85, close-up frames MAE 1.09 (encode noise only), white pixels in the hip band 1.4% of the frame, 217 frames / 24 fps / AAC preserved.

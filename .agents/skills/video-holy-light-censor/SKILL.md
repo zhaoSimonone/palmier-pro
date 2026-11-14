@@ -109,6 +109,7 @@ python3 scripts/blur_censor.py \
 | `--sticker-look korean` | `emoji` | selects the pink Hangul look; also enables the sticker layer |
 | `--sticker-compact` | off | two small hip lobes instead of the wide three-lobe glow; keeps the centre skirt and gold ornament visible |
 | `--holy-size` | `auto` | light half-width,half-height in source pixels; `auto` uses `0.60 × width, 0.185 × height` |
+| `--holy-lobes` | off | custom lobes `dx,dy,rx,ry;...` in source pixels relative to the light centre; overrides the preset wide/compact layout. Use `--holy-lobes=...` when the first value is negative |
 | `--glow-scale` | 1.00 | multiplier on `--holy-size` |
 | `--glow` | 0.90 / 0.87 | white opacity at the centre (wide / compact) |
 | `--sticker-text` | `너무 귀여워` | Hangul lettering; pass `""` for symbols only |
@@ -121,6 +122,10 @@ The korean look owns its own light-shaped Gaussian blur and whitening. It theref
 **Font.** Lettering needs a Korean handwriting face, resolved from `NanumScript.ttc` (macOS asset font, face index 1) with `AppleSDGothicNeo.ttc` as the last candidate. If no candidate exists and text is non-empty, the script fails with an explicit error instead of silently dropping the lettering. Pass `--sticker-text ""` for symbols only when no Korean font is available.
 
 **Verification.** Same frame count, fps, dimensions and audio as the source. On the reference 720×1280 / 30 fps clip, the two marked hip ROIs dropped from std 60.7 to 24.7, while the upper body (y < 700) stayed at 0.88 mean absolute difference and frames outside the interval at 0.77. Check that the black skirt between the lobes is still visible — that is the point of the compact look — and that no skin triangle survives at the lobe rims.
+
+**Misaligned target boxes.** The compact preset assumes two lobes at roughly the same height. When the user's two red boxes differ in height or size, map them to source pixels with a homography and pass their centres and radii through `--holy-lobes` instead. Each `dx,dy,rx,ry` is relative to the light centre: `dx,dy` is the lobe centre offset in source pixels, `rx,ry` its half-axes. The canvas grows to fit the lobes, and the look adds an elliptical falloff, a 15 px feather and a light-shaped blur, so the two patches read as soft glow rather than white cards.
+
+If the subject moves sideways across the shot, a fixed `--region 0,0,W,H` will leave one side exposed. Locate a rigid costume detail (a belt ornament, a buckle) frame by frame, interpolate the low-confidence frames, and feed one box per frame through `--track-file`. Keep the centre of that box at the light centre. For a close-up or transition where the target is not in frame, put the box centre far outside the frame so the compositor clips the light away entirely. See [references/tuning.md](references/tuning.md) for a worked example and measured values.
 
 ## Several intervals in one render
 

@@ -15,7 +15,8 @@ import cv2
 import numpy as np
 
 from korean_holy_light import (COMPACT_STRENGTH, DEFAULT_TEXT, WIDE_STRENGTH,
-                               apply_korean_holy_light, build_korean_holy_light)
+                               apply_korean_holy_light, build_korean_holy_light,
+                               parse_lobes)
 
 HUE_LO, HUE_HI = 5, 34
 SAT_LO, SAT_HI = 85, 180
@@ -457,6 +458,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--holy-size", default="auto", metavar="auto|W,H",
                         help="korean look: light half-width,half-height in source pixels; "
                              "auto derives both from the frame size")
+    parser.add_argument("--holy-lobes", default="", metavar="DX,DY,RX,RY;...",
+                        help="korean look: custom light lobes in source pixels relative to the "
+                             "light centre; overrides the preset wide/compact lobe layout. "
+                             "Use --holy-lobes=... when the first value is negative")
     parser.add_argument("--sticker-text", default=None,
                         help="hand-drawn text on the glow; empty disables the lettering. "
                              "Defaults to 喵~ or 너무 귀여워 by look")
@@ -517,6 +522,9 @@ def main() -> int:
         raise ValueError("--glow must be in (0, 1] and --glow-scale must be positive")
     if args.sticker_compact and not korean:
         raise ValueError("--sticker-compact requires --sticker-look korean")
+    custom_lobes = parse_lobes(args.holy_lobes) if args.holy_lobes else None
+    if custom_lobes and not korean:
+        raise ValueError("--holy-lobes requires --sticker-look korean")
     holy_size = None
     if korean and args.holy_size != "auto":
         holy_size = parse_pair(args.holy_size, "--holy-size")
@@ -620,8 +628,11 @@ def main() -> int:
                     holy_rx, holy_ry = holy_size or (0.60 * width, 0.185 * height)
                     holy_rx, holy_ry = holy_rx * glow_scale, holy_ry * glow_scale
                     glow_alpha, glow_sticker = build_korean_holy_light(
-                        holy_rx, holy_ry, strength, sticker_text, args.sticker_compact)
-                    holy_blur_sigma = (0.060 if args.sticker_compact else 0.075) * holy_rx
+                        holy_rx, holy_ry, strength, sticker_text, args.sticker_compact,
+                        lobes=custom_lobes)
+                    holy_blur_sigma = (0.18 * max(lobe[2] for lobe in custom_lobes)
+                                       if custom_lobes else
+                                       (0.060 if args.sticker_compact else 0.075) * holy_rx)
                 else:
                     ref_box = smoothed[0][reference]
                     glow_alpha, glow_sticker = build_sticker_glow(
@@ -732,6 +743,7 @@ def main() -> int:
         "stickerLook": look or "",
         "stickerText": sticker_text if look else "",
         "stickerCompact": bool(korean and args.sticker_compact),
+        "holyLobes": len(custom_lobes) if custom_lobes else 0,
         "audioMode": args.audio,
         "segments": [
             {"start": seg["start"], "end": seg["end"],

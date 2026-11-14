@@ -37,3 +37,7 @@ Invoke with: `用 video-holy-light-censor 按相同方式把这个视频 Bunny �
 For 粉色韩文圣光 / 韩国综艺圣光贴纸 / 白色圣光加粉色文字, pass `--sticker-look korean`: overlapping white light lobes plus pink hand-lettered Hangul (`너무 귀여워`), with quotation marks, exclamation marks, hearts and sparkles. It lives in `scripts/korean_holy_light.py` and reuses the same tracking, interval and encoding pipeline. Add `--sticker-compact` for the approved 只遮大腿根部及两侧 variant — two small lobes that leave the centre costume visible — and tune the footprint with `--holy-size`, `--glow-scale` and `--glow`. Lettering needs a Korean handwriting font (`NanumScript.ttc`).
 
 Invoke with: `用 video-holy-light-censor 给变装后的片段加粉色韩文圣光，只遮大腿根部及两侧：/path/to/source.mp4`
+
+When two marked boxes are misaligned or the subject sways, use `--holy-lobes=DX,DY,RX,RY;...` for per-lobe geometry and `--track-file` for a per-frame centre; put the centre off-frame on shots where the target is absent (for example a face close-up). See `video-holy-light-censor/references/tuning.md` for a worked example.
+
+Invoke with: `用 video-holy-light-censor 按截图两个红框加粉色韩文圣光，只遮大腿两侧，人物会左右移动：/path/to/source.mp4`

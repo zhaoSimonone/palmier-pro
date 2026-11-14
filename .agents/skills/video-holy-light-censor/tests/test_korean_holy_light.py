@@ -115,5 +115,37 @@ class KoreanArgumentTests(unittest.TestCase):
                 censor.main()
 
 
+class CustomLobesTests(unittest.TestCase):
+    def test_parse_lobes_rejects_bad_geometry(self):
+        self.assertEqual(korean.parse_lobes('-100,0,120,90;100,40,80,90'),
+                         ((-100.0, 0.0, 120.0, 90.0), (100.0, 40.0, 80.0, 90.0)))
+        for text in ('100,0,120', '100,0,-5,90', '', '100,0,120,90;'):
+            with self.assertRaises(ValueError):
+                korean.parse_lobes(text)
+
+    def test_custom_lobes_light_the_two_centres_and_leave_the_gap_and_edges_dark(self):
+        lobes = korean.parse_lobes('-107,-33,120,112;107,52,88,98')
+        alpha, sticker = korean.build_korean_holy_light(
+            200, 140, 0.84, '', compact=True, lobes=lobes)
+        height, width = alpha.shape
+        cx, cy = width / 2.0, height / 2.0
+        self.assertEqual(sticker.shape, (height, width, 4))
+        self.assertGreater(float(alpha[int(cy - 33), int(cx - 107)]), 0.70)
+        self.assertGreater(float(alpha[int(cy + 52), int(cx + 107)]), 0.70)
+        self.assertLess(float(alpha[int(cy), int(cx)]),
+                        float(alpha[int(cy - 33), int(cx - 107)]))
+        self.assertLess(float(alpha[int(cy - 170), int(cx)]), 0.05)
+        self.assertLess(float(alpha[0, 0]), 0.05)
+
+    def test_custom_lobes_require_the_korean_look(self):
+        argv = ['blur_censor', '--input', 'in.mp4', '--output', 'out.mp4',
+                '--holy-lobes=-107,-33,120,112;107,52,88,98']
+        with patch.object(sys, 'argv', argv), \
+             patch.object(Path, 'is_file', return_value=True), \
+             patch.object(Path, 'exists', return_value=False):
+            with self.assertRaises(ValueError):
+                censor.main()
+
+
 if __name__ == '__main__':
     unittest.main()
