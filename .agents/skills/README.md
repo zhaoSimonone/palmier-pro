@@ -41,3 +41,9 @@ Invoke with: `用 video-holy-light-censor 给变装后的片段加粉色韩文�
 When two marked boxes are misaligned or the subject sways, use `--holy-lobes=DX,DY,RX,RY;...` for per-lobe geometry and `--track-file` for a per-frame centre; put the centre off-frame on shots where the target is absent (for example a face close-up). See `video-holy-light-censor/references/tuning.md` for a worked example.
 
 Invoke with: `用 video-holy-light-censor 按截图两个红框加粉色韩文圣光，只遮大腿两侧，人物会左右移动：/path/to/source.mp4`
+
+## video-sticker-cover-720p
+
+Hide a fixed anime or photo sticker burned into a portrait video and export a 720p MP4 in one encode. Use when a clip is rejected by a generation platform (Seedance / CapCut) because of the sticker, or the user asks 遮挡贴图并生成720p. Ships a temporal-variance measurement helper for the sticker rectangle and a single-pass cover+scale renderer. Do not use for moving overlays, faces, inpainting, or plain re-encoding.
+
+Invoke with: `用 video-sticker-cover-720p 遮挡这个视频的动漫贴图并生成720p：/path/to/source.mp4`

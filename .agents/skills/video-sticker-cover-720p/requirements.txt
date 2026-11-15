@@ -1,0 +1,4 @@
+# Rendering uses only the ffmpeg binaries plus the Python standard library.
+# scripts/measure_region.py needs the two packages below.
+numpy
+Pillow
