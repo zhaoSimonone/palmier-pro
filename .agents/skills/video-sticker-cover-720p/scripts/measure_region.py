@@ -176,23 +176,22 @@ def main() -> int:
         ring = np.concatenate([spread[:border].ravel(), spread[-border:].ravel(),
                                spread[:, :border].ravel(), spread[:, -border:].ravel()])
         background_level = float(np.median(ring))
-        if background_level - sticker_level < 3.0:
-            raise ValueError(
-                "no static rectangle found: the region centre is not calmer than its border. "
-                f"sticker={sticker_level:.2f} background={background_level:.2f}. "
-                "Widen the region so it includes moving background around a fixed sticker, "
-                "or the overlay may be animated and this fixed-rectangle approach does not apply."
-            )
-        threshold = (sticker_level + background_level) / 2
+        # An animated card keeps a fixed border while its interior moves, so a low contrast
+        # here rules out the variance crossing but not the gradient crossing.
+        variance_reliable = background_level - sticker_level >= 3.0
+        threshold = (sticker_level + background_level) / 2 if variance_reliable else 0.0
 
         row_values = spread[:, inset_x:region_w - inset_x].mean(axis=1)
         col_values = spread[inset_y:region_h - inset_y, :].mean(axis=0)
         center_row, center_col = region_h // 2, region_w // 2
 
-        top_index = scan_edge(row_values, center_row, threshold, forward=False)
-        bottom_index = scan_edge(row_values, center_row, threshold, forward=True)
-        left_index = scan_edge(col_values, center_col, threshold, forward=False)
-        right_index = scan_edge(col_values, center_col, threshold, forward=True)
+        if variance_reliable:
+            top_index = scan_edge(row_values, center_row, threshold, forward=False)
+            bottom_index = scan_edge(row_values, center_row, threshold, forward=True)
+            left_index = scan_edge(col_values, center_col, threshold, forward=False)
+            right_index = scan_edge(col_values, center_col, threshold, forward=True)
+        else:
+            top_index = bottom_index = left_index = right_index = None
         top = y0 + (top_index if top_index is not None else 0)
         bottom = y0 + (bottom_index if bottom_index is not None else region_h - 1)
         left = x0 + (left_index if left_index is not None else 0)
@@ -204,16 +203,40 @@ def main() -> int:
         g_bottom, s_bottom = gradient_edge(grad_rows, "stop", y0, 0)
         g_left, s_left = gradient_edge(grad_cols, "start", x0, 1)
         g_right, s_right = gradient_edge(grad_cols, "stop", x0, 0)
+        # A sticker that runs into the frame edge has no step on that side; use the frame edge.
+        flush = {"top": y0 == 0, "bottom": y0 + region_h >= frame_h,
+                 "left": x0 == 0, "right": x0 + region_w >= frame_w}
+        if flush["top"]:
+            g_top, s_top = y0, 0.0
+        if flush["bottom"]:
+            g_bottom, s_bottom = y0 + region_h - 1, 0.0
+        if flush["left"]:
+            g_left, s_left = x0, 0.0
+        if flush["right"]:
+            g_right, s_right = x0 + region_w - 1, 0.0
+        gradient_ok = all(
+            flush[side] or strength >= GRADIENT_MIN
+            for side, strength in (("top", s_top), ("bottom", s_bottom),
+                                   ("left", s_left), ("right", s_right))
+        )
         gradient_rect = None
-        if min(s_top, s_bottom, s_left, s_right) >= GRADIENT_MIN:
+        if gradient_ok:
             gradient_rect = {"x": int(g_left), "y": int(g_top),
                              "width": int(max(1, g_right - g_left + 1)),
                              "height": int(max(1, g_bottom - g_top + 1))}
-        variance_rect = {"x": int(left), "y": int(top),
-                         "width": int(max(1, right - left + 1)),
-                         "height": int(max(1, bottom - top + 1))}
+        variance_rect = None if not variance_reliable else {
+            "x": int(left), "y": int(top),
+            "width": int(max(1, right - left + 1)),
+            "height": int(max(1, bottom - top + 1))}
         # An animated inner image defeats the variance crossing, so a confident hard edge wins
         chosen = gradient_rect or variance_rect
+        if chosen is None:
+            raise ValueError(
+                "no usable rectangle found: the variance contrast is too low and no edge clears "
+                f"the gradient threshold (strengths {s_top:.1f}/{s_bottom:.1f}/{s_left:.1f}/{s_right:.1f}). "
+                "Widen the region so it includes moving background around the overlay, or the overlay "
+                "may be moving and this fixed-rectangle workflow does not apply."
+            )
 
         # Presence is judged on a ring just inside the chosen rect: a fixed card keeps its border
         # still even when the artwork inside moves.
@@ -242,7 +265,8 @@ def main() -> int:
             "region": {"x": x0, "y": y0, "width": region_w, "height": region_h},
             "levels": {"sticker": round(sticker_level, 2),
                        "background": round(background_level, 2),
-                       "threshold": round(threshold, 2)},
+                       "threshold": round(threshold, 2),
+                       "varianceReliable": variance_reliable},
             "rects": {
                 "variance": variance_rect,
                 "gradient": gradient_rect,
@@ -251,6 +275,7 @@ def main() -> int:
             },
             "suggestedRect": chosen,
             "edges": {"top": int(top), "bottom": int(bottom), "left": int(left), "right": int(right)},
+            "flushToFrameEdge": {side: bool(value) for side, value in flush.items()},
             "presence": spans(present),
             "evidence": {
                 "rowProfile": window(row_values, top_index if top_index is not None else 0, y0)

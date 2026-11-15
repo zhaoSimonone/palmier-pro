@@ -176,6 +176,14 @@ def main() -> int:
         filters.append(f"scale={args.size[0]}:{args.size[1]}:flags=lanczos")
     filter_expr = ",".join(filters)
 
+    record = next((item for item in media.get("streams", []) if item.get("codec_type") == "audio"), None)
+    audio_duration = finite(record.get("duration"), "audio duration") if record and record.get("duration") else None
+    # Trimming with -t can drop the last video frames, so trim overlong audio instead and
+    # leave the video stream complete.
+    audio_filter = None
+    if audio_duration is not None and audio_duration > video_duration + 1e-3:
+        audio_filter = f"atrim=0:{video_duration:.12g}"
+
     output_size = list(args.size) if args.size else [video_width, video_height]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".sticker-cover-", dir=args.output.parent) as temp_dir:
@@ -186,10 +194,14 @@ def main() -> int:
             "-vf", filter_expr,
             "-map", "0:v:0", "-map", "0:a?",
             "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-            "-pix_fmt", "yuv420p", "-c:a", args.audio,
-            "-t", f"{video_duration:.12g}", "-movflags", "+faststart",
-            str(staged),
+            "-pix_fmt", "yuv420p",
         ]
+        if audio_filter:
+            # A filter cannot run alongside stream copy, so this path re-encodes audio.
+            command += ["-af", audio_filter, "-c:a", "aac", "-b:a", "192k"]
+        else:
+            command += ["-c:a", args.audio]
+        command += ["-movflags", "+faststart", str(staged)]
         run(command)
         rendered = probe(args.ffprobe, staged)
         rendered_video = next((item for item in rendered.get("streams", [])
