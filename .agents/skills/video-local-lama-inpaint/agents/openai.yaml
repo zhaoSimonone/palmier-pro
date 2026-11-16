@@ -1,0 +1,7 @@
+interface:
+  display_name: "Local LaMa Video Cleanup"
+  short_description: "Remove video overlays with local LaMa inpainting"
+  default_prompt: "Use $video-local-lama-inpaint to remove the specified overlay from the attached video and return the repaired video plus a before/after comparison."
+
+policy:
+  allow_implicit_invocation: true
